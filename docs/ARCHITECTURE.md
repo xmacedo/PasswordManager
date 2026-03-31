@@ -16,6 +16,31 @@
 - KDF: PBKDF2-SHA256 (310.000 iterações).
 - Salt e IV aleatórios por criptografia.
 
+
+## Modelo de dados sugerido (MVP)
+
+- `Folder`
+  - `id`
+  - `name`
+  - `createdAt`
+- `Credential`
+  - `id`
+  - `folderId`
+  - `title`
+  - `username`
+  - `passwordEncrypted`
+  - `url`
+  - `notesEncrypted`
+  - `createdAt`
+  - `updatedAt`
+
+## Fluxo de criação de senha
+
+1. Usuário define tamanho e regras (maiúsculas, números, símbolos).
+2. Sistema gera senha forte pseudoaleatória.
+3. Usuário confirma e salva.
+4. Antes de persistir, conteúdo sensível é criptografado localmente.
+
 ## Próximos passos de produto
 
 1. Cadastro de pastas dinâmicas.
