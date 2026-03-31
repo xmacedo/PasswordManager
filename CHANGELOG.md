@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.1.0] - 2026-03-31 - Foundation Setup (current)
+## [0.1.0] - 2026-03-31 - Foundation Setup
 
 ### Added
 - Monorepo foundation with:
@@ -21,7 +21,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 # Next
 
-### v0.2.0 - Folder Management & Persistence (planned)
+### v0.2.0 - Folder Management & Persistence (current)
 
 - **Create / Edit / Delete folders**.
 - **Explorer-style folder view** (Windows Explorer-like navigation pattern).
