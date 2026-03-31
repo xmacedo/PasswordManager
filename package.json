@@ -1,9 +1,17 @@
 {
   "name": "password-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:core": "node --test tests/**/*.test.mjs",
+    "dev:web": "npm run dev --workspace @password-manager/web",
+    "dev:ios": "npm run start --workspace @password-manager/ios",
+    "build:web": "npm run build --workspace @password-manager/web"
   }
 }

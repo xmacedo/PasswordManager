@@ -1,21 +1,21 @@
 # Arquitetura inicial
 
-## Visão geral
+## Apps
 
-O projeto começa com foco em **segurança por padrão** e compartilhamento de lógica entre plataformas.
+- `apps/web`: React + Vite para interface web.
+- `apps/ios`: Expo/React Native para iPhone.
 
-- **Apps**
-  - `apps/web`: front-end web.
-  - `apps/ios`: front-end iOS.
-- **Core compartilhado**
-  - `packages/core/security`: funções de criptografia e geração de senha forte.
+## Core compartilhado
+
+- `packages/core/security/passwordGenerator.js`: geração de senha forte.
+- `packages/core/security/cryptoVault.js`: criptografia/descriptografia com AES-GCM + PBKDF2.
 
 ## Segurança
 
-- Criptografia de dados com **AES-GCM 256 bits**.
-- Chave derivada de uma senha-mestra com **PBKDF2 (SHA-256)** e salt aleatório.
-- Vetor de inicialização (IV) aleatório por operação de criptografia.
-- Formato de payload serializado para persistência segura.
+- AES-GCM 256 bits.
+- KDF: PBKDF2-SHA256 (310.000 iterações).
+- Salt e IV aleatórios por criptografia.
+
 
 ## Modelo de dados sugerido (MVP)
 
@@ -41,9 +41,10 @@ O projeto começa com foco em **segurança por padrão** e compartilhamento de l
 3. Usuário confirma e salva.
 4. Antes de persistir, conteúdo sensível é criptografado localmente.
 
-## Próximos marcos
+## Próximos passos de produto
 
-1. Criar camadas de repositório e casos de uso no core.
-2. Construir protótipo UI web.
-3. Construir protótipo UI iOS.
-4. Adicionar testes de integração e validação de segurança.
+1. Cadastro de pastas dinâmicas.
+2. CRUD de credenciais (título, usuário, URL, notas).
+3. Persistência local segura por plataforma.
+4. Biometria no iOS (Face ID/Touch ID).
+5. Sincronização opcional com backend zero-knowledge.

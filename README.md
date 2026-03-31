@@ -1,42 +1,59 @@
 # PasswordManager
 
-Projeto inicial de um **gerenciador de senhas** com foco em uso via **web** e **iPhone (iOS)**.
+Aplicativo de gerenciamento de senhas com foco em **Web** e **iOS**.
 
-## Objetivo do produto
+## ✅ O que já foi iniciado
 
-Criar um aplicativo que permita:
+Estrutura real de projeto em monorepo:
 
-- Organizar senhas por pastas/categorias.
-- Criar novas senhas com sugestão de senhas fortes.
-- Armazenar todos os dados sensíveis sempre criptografados.
-- Disponibilizar a experiência em Web e iOS.
+- `apps/web`: app React + Vite com tela inicial funcional.
+- `apps/ios`: app Expo (React Native) com tela inicial funcional.
+- `packages/core`: biblioteca compartilhada com geração de senha forte e criptografia.
 
-## Estratégia recomendada (MVP)
+## Estrutura
 
-Para acelerar o início, a melhor estratégia é usar uma base compartilhada de regras de negócio e criptografia.
+```text
+.
+├─ apps/
+│  ├─ web/
+│  └─ ios/
+├─ packages/
+│  └─ core/
+├─ tests/
+└─ docs/
+```
 
-- `packages/core`: regras de domínio (geração de senha, criptografia, validações).
-- `apps/web`: interface Web.
-- `apps/ios`: interface iOS.
+## Funcionalidades iniciais implementadas
 
-## Primeiras entregas já iniciadas neste repositório
+- Geração de senha forte configurável.
+- Criptografia de segredos com AES-GCM + PBKDF2.
+- Tela inicial Web com:
+  - criação de senha sugerida;
+  - organização visual por pastas (exemplo inicial).
+- Tela inicial iOS com botão para sugerir senha forte.
 
-1. Estrutura inicial de monorepo.
-2. Módulo de geração de senhas fortes em `packages/core/security/passwordGenerator.js`.
-3. Módulo de criptografia AES-GCM com derivação de chave PBKDF2 em `packages/core/security/cryptoVault.js`.
-4. Testes automatizados iniciais em `tests/security.test.mjs`.
-5. Documento de arquitetura em `docs/ARCHITECTURE.md`.
+## Como rodar
 
-## Como executar os testes
+### 1) Instalar dependências
+
+```bash
+npm install
+```
+
+### 2) Rodar Web
+
+```bash
+npm run dev:web
+```
+
+### 3) Rodar iOS (Expo)
+
+```bash
+npm run dev:ios
+```
+
+### 4) Rodar testes
 
 ```bash
 npm test
 ```
-
-## Próximos passos sugeridos
-
-- Criar UI inicial (login local + lista de pastas + lista de senhas).
-- Definir persistência local segura para cada plataforma.
-- Adicionar sincronização opcional com backend (modelo zero-knowledge).
-- Implementar biometria no iOS (Face ID/Touch ID).
-- Implementar auditoria de senhas fracas/duplicadas/reutilizadas.
