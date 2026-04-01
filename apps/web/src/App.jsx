@@ -47,10 +47,52 @@ function FolderTree({ vault, parentId, selectedFolderId, onSelect }) {
   );
 }
 
+function maskPassword(password, isVisible) {
+  if (isVisible) {
+    return password || '—';
+  }
+
+  return password ? '•'.repeat(Math.max(8, password.length)) : '—';
+}
+
+async function copyText(text) {
+  if (!text) {
+    return false;
+  }
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fallback below
+  }
+
+  try {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.setAttribute('readonly', '');
+    el.style.position = 'absolute';
+    el.style.left = '-9999px';
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const [vault, setVault] = useState(createEmptyVault());
   const [selectedFolderId, setSelectedFolderId] = useState('root');
   const [generatedPassword, setGeneratedPassword] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchScope, setSearchScope] = useState('all');
+  const [visiblePasswordIds, setVisiblePasswordIds] = useState({});
+  const [copyFeedback, setCopyFeedback] = useState('');
 
   useEffect(() => {
     repository.load().then(setVault);
@@ -70,6 +112,20 @@ export function App() {
     () => getFolderPath(vault, selectedFolder?.id || 'root'),
     [vault, selectedFolder]
   );
+
+  const filteredEntries = useMemo(() => {
+    const source = searchScope === 'current-folder' ? entries : vault.entries;
+    const term = searchTerm.trim().toLowerCase();
+
+    if (!term) {
+      return source;
+    }
+
+    return source.filter((entry) => {
+      const searchable = [entry.title, entry.username, entry.password].join(' ').toLowerCase();
+      return searchable.includes(term);
+    });
+  }, [entries, searchScope, searchTerm, vault.entries]);
 
   async function commit(nextVault) {
     setVault(nextVault);
@@ -150,6 +206,26 @@ export function App() {
     await commit(nextVault);
   }
 
+  function getFolderName(folderId) {
+    return vault.folders.find((folder) => folder.id === folderId)?.name || 'Sem pasta';
+  }
+
+  function handleToggleReveal(entryId) {
+    setVisiblePasswordIds((current) => ({
+      ...current,
+      [entryId]: !current[entryId]
+    }));
+  }
+
+  async function handleCopyPassword(entry) {
+    const didCopy = await copyText(entry.password);
+    setCopyFeedback(didCopy ? `Senha de "${entry.title}" copiada.` : 'Não foi possível copiar a senha.');
+
+    window.setTimeout(() => {
+      setCopyFeedback('');
+    }, 2500);
+  }
+
   const handleGeneratePassword = () => {
     setGeneratedPassword(
       generateStrongPassword({
@@ -162,10 +238,13 @@ export function App() {
     );
   };
 
+  const showOnboarding = vault.entries.length === 0;
+  const isSearching = searchTerm.trim().length > 0;
+
   return (
     <main className="container">
       <h1>PasswordManager</h1>
-      <p>v0.2.0 com Explorer de pastas + persistência local.</p>
+      <p>v0.3.0 com UX do cofre: busca, filtros, copiar e revelar senha.</p>
 
       <section className="layout">
         <aside className="card sidebar">
@@ -209,17 +288,58 @@ export function App() {
             </button>
           </div>
 
+          <div className="search-bar">
+            <input
+              type="search"
+              placeholder="Buscar por título, usuário ou senha"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+            <select value={searchScope} onChange={(event) => setSearchScope(event.target.value)}>
+              <option value="all">Todas as pastas</option>
+              <option value="current-folder">Apenas pasta atual</option>
+            </select>
+          </div>
+
+          {copyFeedback && <p className="feedback">{copyFeedback}</p>}
+
+          {showOnboarding && (
+            <div className="empty-state onboarding">
+              <h3>Bem-vindo ao seu cofre</h3>
+              <p>Comece criando pastas para organizar categorias como Trabalho, Pessoal e Financeiro.</p>
+              <ol>
+                <li>Crie uma pasta no Explorer.</li>
+                <li>Adicione sua primeira credencial com título e usuário.</li>
+                <li>Use copiar/revelar para acessar senhas rapidamente.</li>
+              </ol>
+            </div>
+          )}
+
           <ul className="entries-list">
-            {entries.length === 0 && <li>Nenhuma credencial nesta pasta.</li>}
-            {entries.map((entry) => (
+            {filteredEntries.length === 0 && (
+              <li className="empty-state">
+                {isSearching
+                  ? 'Nenhuma credencial encontrada com este filtro de busca.'
+                  : 'Nenhuma credencial nesta pasta. Clique em “+ Nova credencial” para começar.'}
+              </li>
+            )}
+            {filteredEntries.map((entry) => (
               <li key={entry.id} className="entry-item">
                 <div>
                   <strong>{entry.title}</strong>
+                  <p>Usuário: {entry.username || '—'}</p>
                   <p>
-                    Usuário: {entry.username || '—'} · Senha: {entry.password || '—'}
+                    Senha: {maskPassword(entry.password, !!visiblePasswordIds[entry.id])}
+                    <button type="button" className="text-button" onClick={() => handleToggleReveal(entry.id)}>
+                      {visiblePasswordIds[entry.id] ? 'Ocultar' : 'Revelar'}
+                    </button>
                   </p>
+                  {searchScope === 'all' && <p>Pasta: {getFolderName(entry.folderId)}</p>}
                 </div>
                 <div className="entry-actions">
+                  <button type="button" onClick={() => handleCopyPassword(entry)}>
+                    Copiar senha
+                  </button>
                   <button type="button" onClick={() => handleEditEntry(entry)}>
                     Editar
                   </button>
