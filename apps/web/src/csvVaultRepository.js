@@ -132,8 +132,7 @@ async function ensureFileHandle() {
     fileHandle = null;
   }
 
-  fileHandle = await promptForFileHandle();
-  return fileHandle;
+  return null;
 }
 
 function parseCsv(text) {
@@ -193,6 +192,27 @@ function toCsv({ vault, encryptedMasterSecret }) {
 
 export function createCsvVaultRepository() {
   return {
+    async getCurrentVaultFileName() {
+      const handle = await ensureFileHandle();
+      return handle?.name || '';
+    },
+
+    async connectToExistingVault() {
+      const handle = await pickExistingFileHandle();
+      if (!handle) return '';
+      await persistHandle(handle);
+      fileHandle = handle;
+      return handle.name || '';
+    },
+
+    async createVaultFile() {
+      const handle = await createNewFileHandle();
+      if (!handle) return '';
+      await persistHandle(handle);
+      fileHandle = handle;
+      return handle.name || '';
+    },
+
     async load() {
       const handle = await ensureFileHandle();
       if (!handle) {
@@ -220,11 +240,12 @@ export function createCsvVaultRepository() {
 
     async save(data) {
       const handle = await ensureFileHandle();
-      if (!handle) return;
+      if (!handle) return false;
 
       const writable = await handle.createWritable();
       await writable.write(toCsv(data));
       await writable.close();
+      return true;
     }
   };
 }
