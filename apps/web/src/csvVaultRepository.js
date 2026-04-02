@@ -1,6 +1,9 @@
 import { createEmptyVault } from '@password-manager/core';
 
 const FILE_NAME = 'password-manager.vault.csv';
+const HANDLE_DB_NAME = 'password-manager-storage';
+const HANDLE_STORE_NAME = 'handles';
+const HANDLE_KEY = 'default-vault-handle';
 
 let fileHandle;
 
@@ -12,15 +15,49 @@ function decodePayload(encoded) {
   return JSON.parse(decodeURIComponent(escape(atob(encoded))));
 }
 
-async function ensureFileHandle() {
-  if (fileHandle) return fileHandle;
+function openHandleDb() {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(HANDLE_DB_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(HANDLE_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+  });
+}
 
-  if (!window.showSaveFilePicker) {
-    return null;
-  }
+async function readPersistedHandle() {
+  if (!window.indexedDB) return null;
+  const db = await openHandleDb();
 
-  fileHandle = await window.showSaveFilePicker({
-    suggestedName: FILE_NAME,
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE_NAME, 'readonly');
+    const request = tx.objectStore(HANDLE_STORE_NAME).get(HANDLE_KEY);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result || null);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function persistHandle(handle) {
+  if (!window.indexedDB) return;
+  const db = await openHandleDb();
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
+    tx.objectStore(HANDLE_STORE_NAME).put(handle, HANDLE_KEY);
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => resolve();
+  });
+
+  db.close();
+}
+
+async function pickExistingFileHandle() {
+  if (!window.showOpenFilePicker) return null;
+
+  const [handle] = await window.showOpenFilePicker({
+    multiple: false,
     types: [
       {
         description: 'Vault CSV',
@@ -31,6 +68,71 @@ async function ensureFileHandle() {
     ]
   });
 
+  return handle || null;
+}
+
+async function createNewFileHandle() {
+  if (!window.showSaveFilePicker) return null;
+  return window.showSaveFilePicker({
+    suggestedName: FILE_NAME,
+    types: [
+      {
+        description: 'Vault CSV',
+        accept: {
+          'text/csv': ['.csv']
+        }
+      }
+    ]
+  });
+}
+
+async function promptForFileHandle() {
+  let handle = null;
+
+  try {
+    handle = await pickExistingFileHandle();
+  } catch {
+    handle = null;
+  }
+
+  if (!handle) {
+    handle = await createNewFileHandle();
+  }
+
+  if (!handle) return null;
+  await persistHandle(handle);
+  return handle;
+}
+
+async function ensureReadWritePermission(handle) {
+  if (!handle?.queryPermission || !handle?.requestPermission) return true;
+
+  const options = { mode: 'readwrite' };
+  if ((await handle.queryPermission(options)) === 'granted') {
+    return true;
+  }
+
+  return (await handle.requestPermission(options)) === 'granted';
+}
+
+async function ensureFileHandle() {
+  if (fileHandle) return fileHandle;
+
+  try {
+    fileHandle = await readPersistedHandle();
+  } catch {
+    fileHandle = null;
+  }
+
+  if (fileHandle) {
+    const hasPermission = await ensureReadWritePermission(fileHandle);
+    if (hasPermission) {
+      return fileHandle;
+    }
+    fileHandle = null;
+  }
+
+  fileHandle = await promptForFileHandle();
   return fileHandle;
 }
 
@@ -97,7 +199,17 @@ export function createCsvVaultRepository() {
         return { vault: createEmptyVault(), encryptedMasterSecret: null };
       }
 
-      const file = await handle.getFile();
+      let file;
+      try {
+        file = await handle.getFile();
+      } catch {
+        fileHandle = await promptForFileHandle();
+        if (!fileHandle) {
+          return { vault: createEmptyVault(), encryptedMasterSecret: null };
+        }
+        file = await fileHandle.getFile();
+      }
+
       const text = await file.text();
       if (!text.trim()) {
         return { vault: createEmptyVault(), encryptedMasterSecret: null };
