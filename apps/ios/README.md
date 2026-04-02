@@ -1,26 +1,28 @@
-# iOS App
+# PasswordManager iOS App
 
-iOS client for PasswordManager built with Expo (React Native).
+Expo / React Native client focused on secure mobile vault interactions.
 
-## Scope
+## Release Scope (v0.4.0)
 
-- Mobile-friendly vault browsing.
-- Secure password access and management.
-- Shared security primitives from `packages/core`.
+- Session timeout lock on inactivity.
+- Optional biometric unlock mode (simulated toggle in this version).
+- Breach check status after password generation.
+- Security event logging counters.
 
-## Planned Milestones
+## Current UX
 
-- v0.2.0: Folder create/edit/delete + persistent storage.
-- v0.3.0: Password CRUD with fast navigation.
-- v0.4.0: Biometric unlock and security hardening.
+- Generate strong passwords from shared core package.
+- Toggle biometric preference.
+- Manually lock and unlock vault state.
+- Observe risk and security activity feedback.
 
-## UX Direction
+## Commands
 
-- Native-first interactions.
-- Clear information hierarchy.
-- Security-first user flows (lock, reveal, copy, timeout).
+```bash
+npm run start --workspace @password-manager/ios
+```
 
-## Releases
+## Related Docs
 
-See the root [CHANGELOG.md](../../CHANGELOG.md) for project version history.
-
+- Root changelog: [../../CHANGELOG.md](../../CHANGELOG.md)
+- Root overview: [../../README.md](../../README.md)
