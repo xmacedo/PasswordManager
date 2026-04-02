@@ -75,8 +75,9 @@ body {
   margin-bottom: 0.8rem;
 }
 
-.search-bar input,
-.search-bar select {
+
+input,
+select {
   border: 1px solid #314262;
   border-radius: 8px;
   padding: 0.5rem 0.6rem;

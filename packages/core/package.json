@@ -1,6 +1,6 @@
 {
   "name": "@password-manager/core",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "index.js",
@@ -8,6 +8,9 @@
     ".": "./index.js",
     "./security/passwordGenerator": "./security/passwordGenerator.js",
     "./security/cryptoVault": "./security/cryptoVault.js",
-    "./storage/vaultStore": "./storage/vaultStore.js"
+    "./storage/vaultStore": "./storage/vaultStore.js",
+    "./security/vaultSession": "./security/vaultSession.js",
+    "./security/breachDetection": "./security/breachDetection.js",
+    "./security/auditLog": "./security/auditLog.js"
   }
 }

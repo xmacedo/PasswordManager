@@ -1,50 +1,37 @@
-# Arquitetura inicial
+# Arquitetura
 
-## Apps
+## 1. Visão geral
 
-- `apps/web`: React + Vite para interface web.
-- `apps/ios`: Expo/React Native para iPhone.
+O repositório é um monorepo com duas aplicações cliente (`web` e `ios`) e um pacote central compartilhado (`packages/core`).
 
-## Core compartilhado
+## 2. Apps
 
-- `packages/core/security/passwordGenerator.js`: geração de senha forte.
-- `packages/core/security/cryptoVault.js`: criptografia/descriptografia com AES-GCM + PBKDF2.
+- `apps/web`: React + Vite para UX de cofre, exploração de pastas e operações de credenciais.
+- `apps/ios`: Expo/React Native para fluxo mobile com desbloqueio biométrico opcional.
 
-## Segurança
+## 3. Core compartilhado (`packages/core`)
 
-- AES-GCM 256 bits.
-- KDF: PBKDF2-SHA256 (310.000 iterações).
-- Salt e IV aleatórios por criptografia.
+### Segurança criptográfica
+- `security/passwordGenerator.js`: geração de senha forte.
+- `security/cryptoVault.js`: criptografia/descriptografia com AES-GCM + PBKDF2.
 
+### Hardening de sessão (v0.4.0)
+- `security/vaultSession.js`: estado de sessão, timeout de bloqueio automático e reautenticação.
+- `security/breachDetection.js`: verificação local de senhas fracas/comprometidas.
+- `security/auditLog.js`: criação e persistência de eventos de auditoria de segurança.
 
-## Modelo de dados sugerido (MVP)
+### Domínio de cofre
+- `storage/vaultStore.js`: CRUD de pastas e credenciais, hierarquia e persistência local.
 
-- `Folder`
-  - `id`
-  - `name`
-  - `createdAt`
-- `Credential`
-  - `id`
-  - `folderId`
-  - `title`
-  - `username`
-  - `passwordEncrypted`
-  - `url`
-  - `notesEncrypted`
-  - `createdAt`
-  - `updatedAt`
+## 4. Fluxos de segurança (v0.4.0)
 
-## Fluxo de criação de senha
+1. Usuário autentica/desbloqueia cofre.
+2. Sessão registra atividade e aplica timeout de auto-lock.
+3. Ao criar/editar senha, o sistema valida risco de comprometimento.
+4. Ações sensíveis (unlock, copy, reveal, delete, etc.) geram eventos de auditoria.
 
-1. Usuário define tamanho e regras (maiúsculas, números, símbolos).
-2. Sistema gera senha forte pseudoaleatória.
-3. Usuário confirma e salva.
-4. Antes de persistir, conteúdo sensível é criptografado localmente.
+## 5. Próxima evolução (v0.5.0)
 
-## Próximos passos de produto
-
-1. Cadastro de pastas dinâmicas.
-2. CRUD de credenciais (título, usuário, URL, notas).
-3. Persistência local segura por plataforma.
-4. Biometria no iOS (Face ID/Touch ID).
-5. Sincronização opcional com backend zero-knowledge.
+- Sincronização criptografada opcional.
+- Backup e restore.
+- Import/export CSV/JSON.

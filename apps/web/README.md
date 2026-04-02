@@ -1,27 +1,29 @@
-# Web App
+# PasswordManager Web (`apps/web`)
 
-Web client for PasswordManager built with React + Vite.
+Web client built with **React + Vite**.
 
-## Scope
+## Version focus
 
-- Folder explorer UI for password organization.
-- Password CRUD experience.
-- Search, filtering, and quick actions.
-- Integration with shared crypto/security logic from `packages/core`.
+- Current target: **v0.4.0 Security Hardening**
+- Main additions:
+  - Auto-lock timeout and re-authentication.
+  - Breach warning checks during credential flows.
+  - Local audit event log for sensitive actions.
 
-## Planned Milestones
+## Responsibilities
 
-- v0.2.0: Folder create/edit/delete + explorer-style navigation + local persistence.
-- v0.3.0: Full password vault UX and advanced filters.
-- v0.4.0: Security hardening and breach alerts.
+- Explorer navigation for folders.
+- Credential CRUD and search/filter UX.
+- Security interaction flows (copy/reveal, lock/unlock, security feedback).
 
-## Visual Direction
+## Local commands
 
-- Sidebar explorer + content panel layout.
-- Clear visual hierarchy with consistent spacing.
-- High-contrast secure action patterns.
+```bash
+npm run dev --workspace @password-manager/web
+npm run build --workspace @password-manager/web
+```
 
-## Releases
+## References
 
-See the root [CHANGELOG.md](../../CHANGELOG.md) for project version history.
-
+- Root changelog: [../../CHANGELOG.md](../../CHANGELOG.md)
+- Architecture notes: [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
