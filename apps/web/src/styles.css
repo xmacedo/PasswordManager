@@ -162,6 +162,12 @@ label input {
   margin: 0.6rem 0;
 }
 
+.toggle-inline {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .helper {
   color: #93c5fd;
 }

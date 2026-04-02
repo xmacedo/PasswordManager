@@ -29,6 +29,8 @@ import { createCsvVaultRepository } from './csvVaultRepository';
 
 const repository = createCsvVaultRepository();
 const MASTER_SECRET_KEY = 'pm-default-master-key';
+const MASTER_PASSWORD_LOCAL_STORAGE_KEY = 'pm-master-password';
+const VAULT_LOCATION_LOCAL_STORAGE_KEY = 'pm-vault-location';
 const DEFAULT_ENCRYPTED_MASTER_SECRET =
   '{"algorithm":"AES-GCM","kdf":"PBKDF2-SHA256","iterations":310000,"salt":"Gmh7ZxwB9XhS/eXs/eD/kQ==","iv":"8yDwDLUZAPaXbaWe","cipherText":"/smjUP0gCeO8CmeWbV4MhRoVQILYJiSw"}';
 
@@ -133,19 +135,27 @@ export function App() {
   const [encryptedMasterSecret, setEncryptedMasterSecret] = useState(DEFAULT_ENCRYPTED_MASTER_SECRET);
   const [unlockInput, setUnlockInput] = useState('');
   const [isLoadingVault, setIsLoadingVault] = useState(true);
+  const [vaultLocation, setVaultLocation] = useState('');
+  const [canEditVaultLocation, setCanEditVaultLocation] = useState(false);
 
   useEffect(() => {
     async function initialize() {
       try {
         const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
+        const persistedMasterPassword = window.localStorage.getItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY) || '';
+        const persistedVaultLocation = window.localStorage.getItem(VAULT_LOCATION_LOCAL_STORAGE_KEY) || '';
+        const detectedVaultFileName = await repository.getCurrentVaultFileName();
+        const resolvedVaultLocation = detectedVaultFileName || persistedVaultLocation;
         const loaded = await repository.load();
         const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
-        let resolvedMasterPassword = defaultMasterPassword;
+        let resolvedMasterPassword = persistedMasterPassword || defaultMasterPassword;
 
-        try {
-          resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
-        } catch {
-          resolvedMasterPassword = defaultMasterPassword;
+        if (!persistedMasterPassword) {
+          try {
+            resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
+          } catch {
+            resolvedMasterPassword = defaultMasterPassword;
+          }
         }
 
         const decryptedEntries = await Promise.all(
@@ -163,6 +173,10 @@ export function App() {
 
         setMasterPassword(resolvedMasterPassword || defaultMasterPassword);
         setEncryptedMasterSecret(persistedMasterSecret);
+        setVaultLocation(resolvedVaultLocation);
+        if (resolvedVaultLocation) {
+          window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, resolvedVaultLocation);
+        }
         setVault({
           ...loaded.vault,
           entries: decryptedEntries
@@ -174,6 +188,14 @@ export function App() {
 
     initialize();
   }, []);
+
+  useEffect(() => {
+    if (!masterPassword) {
+      window.localStorage.removeItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY, masterPassword);
+  }, [masterPassword]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -291,10 +313,48 @@ export function App() {
     const nextMasterSecret = await encryptSecret(nextPassword, MASTER_SECRET_KEY);
     setMasterPassword(nextPassword);
     setEncryptedMasterSecret(nextMasterSecret);
+    window.localStorage.setItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY, nextPassword);
     await commit(vault, 'security.master_password_updated', {}, {
       masterSecret: nextMasterSecret,
       plainMasterPassword: nextPassword
     });
+  }
+
+  function handleVaultLocationChange(nextLocation) {
+    setVaultLocation(nextLocation);
+  }
+
+  function handleSaveVaultLocation() {
+    if (!vaultLocation.trim()) {
+      window.localStorage.removeItem(VAULT_LOCATION_LOCAL_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, vaultLocation.trim());
+  }
+
+  async function handleSelectExistingVault() {
+    try {
+      const selectedName = await repository.connectToExistingVault();
+      if (!selectedName) return;
+      handleVaultLocationChange(selectedName);
+      window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, selectedName);
+      window.location.reload();
+    } catch {
+      setCopyFeedback('Não foi possível selecionar um arquivo existente.');
+    }
+  }
+
+  async function handleCreateVaultFromLockScreen() {
+    try {
+      const selectedName = await repository.createVaultFile();
+      if (!selectedName) return;
+      handleVaultLocationChange(selectedName);
+      window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, selectedName);
+      await persistVault(createEmptyVault());
+      window.location.reload();
+    } catch {
+      setCopyFeedback('Não foi possível criar um novo arquivo de cofre.');
+    }
   }
 
   function getFolderName(folderId) {
@@ -374,6 +434,40 @@ export function App() {
       <main className="container">
         <section className="card lock-screen">
           <h1>Password Manage</h1>
+          <label>
+            Localização do arquivo de senhas
+            <input
+              type="text"
+              value={vaultLocation}
+              disabled={!canEditVaultLocation}
+              onChange={(event) => handleVaultLocationChange(event.target.value)}
+              placeholder="Ex: password-manager.vault.csv"
+            />
+          </label>
+          <label className="toggle-inline">
+            <input
+              type="checkbox"
+              checked={canEditVaultLocation}
+              onChange={(event) => {
+                setCanEditVaultLocation(event.target.checked);
+                if (!event.target.checked) {
+                  handleSaveVaultLocation();
+                }
+              }}
+            />
+            Habilitar edição do caminho
+          </label>
+          <div className="actions-row">
+            <button type="button" onClick={handleSaveVaultLocation} disabled={!canEditVaultLocation}>
+              Salvar caminho
+            </button>
+            <button type="button" onClick={handleSelectExistingVault}>
+              Selecionar arquivo existente
+            </button>
+            <button type="button" onClick={handleCreateVaultFromLockScreen}>
+              Criar arquivo do cofre
+            </button>
+          </div>
           <label>
             Senha
             <input type="password" value={unlockInput} onChange={(event) => setUnlockInput(event.target.value)} />
