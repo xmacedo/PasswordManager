@@ -7,10 +7,11 @@ import {
   createEmptyVault,
   createEntry,
   createFolder,
-  createLocalStorageVaultRepository,
   createSessionLock,
+  decryptSecret,
   deleteEntry,
   deleteFolder,
+  encryptSecret,
   generateStrongPassword,
   getChildFolders,
   getEntriesByFolder,
@@ -24,7 +25,12 @@ import {
   updateEntry
 } from '@password-manager/core';
 
-const repository = createLocalStorageVaultRepository();
+import { createCsvVaultRepository } from './csvVaultRepository';
+
+const repository = createCsvVaultRepository();
+const MASTER_SECRET_KEY = 'pm-default-master-key';
+const DEFAULT_ENCRYPTED_MASTER_SECRET =
+  '{"algorithm":"AES-GCM","kdf":"PBKDF2-SHA256","iterations":310000,"salt":"Gmh7ZxwB9XhS/eXs/eD/kQ==","iv":"8yDwDLUZAPaXbaWe","cipherText":"/smjUP0gCeO8CmeWbV4MhRoVQILYJiSw"}';
 
 function FolderTree({ vault, parentId, selectedFolderId, onSelect }) {
   const children = getChildFolders(vault, parentId);
@@ -82,6 +88,37 @@ async function copyText(text) {
   }
 }
 
+async function unlockWithTouchId() {
+  if (!window.PublicKeyCredential || !navigator.credentials?.create) {
+    return false;
+  }
+
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const userId = crypto.getRandomValues(new Uint8Array(16));
+
+  await navigator.credentials.create({
+    publicKey: {
+      challenge,
+      rp: { name: 'PasswordManager' },
+      user: {
+        id: userId,
+        name: 'local-user@password-manager.app',
+        displayName: 'Local User'
+      },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+      timeout: 60_000,
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform',
+        userVerification: 'required',
+        residentKey: 'preferred'
+      },
+      attestation: 'none'
+    }
+  });
+
+  return true;
+}
+
 export function App() {
   const [vault, setVault] = useState(createEmptyVault());
   const [selectedFolderId, setSelectedFolderId] = useState('root');
@@ -92,11 +129,39 @@ export function App() {
   const [copyFeedback, setCopyFeedback] = useState('');
   const [auditLog, setAuditLog] = useState(createAuditLog());
   const [sessionLock, setSessionLock] = useState(() => unlockSessionLock(createSessionLock({ timeoutMs: 90_000 })));
-  const [masterPassword, setMasterPassword] = useState('vault123');
+  const [masterPassword, setMasterPassword] = useState('');
+  const [encryptedMasterSecret, setEncryptedMasterSecret] = useState(DEFAULT_ENCRYPTED_MASTER_SECRET);
   const [unlockInput, setUnlockInput] = useState('');
 
   useEffect(() => {
-    repository.load().then(setVault);
+    async function initialize() {
+      const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
+      const loaded = await repository.load();
+      const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
+      const resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
+
+      const decryptedEntries = await Promise.all(
+        loaded.vault.entries.map(async (entry) => {
+          if (!entry.password) return entry;
+
+          try {
+            const password = await decryptSecret(entry.password, resolvedMasterPassword);
+            return { ...entry, password };
+          } catch {
+            return { ...entry, password: '' };
+          }
+        })
+      );
+
+      setMasterPassword(resolvedMasterPassword || defaultMasterPassword);
+      setEncryptedMasterSecret(persistedMasterSecret);
+      setVault({
+        ...loaded.vault,
+        entries: decryptedEntries
+      });
+    }
+
+    initialize();
   }, []);
 
   useEffect(() => {
@@ -126,11 +191,28 @@ export function App() {
     });
   }, [entries, searchScope, searchTerm, vault.entries]);
 
-  async function commit(nextVault, eventType, metadata = {}) {
+  async function persistVault(nextVault, masterSecret = encryptedMasterSecret, plainMasterPassword = masterPassword) {
+    const encryptedEntries = await Promise.all(
+      nextVault.entries.map(async (entry) => ({
+        ...entry,
+        password: entry.password ? await encryptSecret(entry.password, plainMasterPassword) : ''
+      }))
+    );
+
+    await repository.save({
+      vault: {
+        ...nextVault,
+        entries: encryptedEntries
+      },
+      encryptedMasterSecret: masterSecret
+    });
+  }
+
+  async function commit(nextVault, eventType, metadata = {}, options = {}) {
     setVault(nextVault);
     setAuditLog((current) => appendAuditEvent(current, { type: eventType, metadata }));
     setSessionLock((current) => touchSessionLock(current));
-    await repository.save(nextVault);
+    await persistVault(nextVault, options.masterSecret || encryptedMasterSecret, options.plainMasterPassword || masterPassword);
   }
 
   async function handleCreateFolder() {
@@ -191,6 +273,19 @@ export function App() {
     await commit(nextVault, 'entry.deleted', { entryId });
   }
 
+  async function handleUpdateMasterPassword() {
+    const nextPassword = window.prompt('Nova senha mestra:', masterPassword);
+    if (!nextPassword) return;
+
+    const nextMasterSecret = await encryptSecret(nextPassword, MASTER_SECRET_KEY);
+    setMasterPassword(nextPassword);
+    setEncryptedMasterSecret(nextMasterSecret);
+    await commit(vault, 'security.master_password_updated', {}, {
+      masterSecret: nextMasterSecret,
+      plainMasterPassword: nextPassword
+    });
+  }
+
   function getFolderName(folderId) {
     return vault.folders.find((folder) => folder.id === folderId)?.name || 'Sem pasta';
   }
@@ -220,7 +315,7 @@ export function App() {
     setAuditLog((current) => appendAuditEvent(current, { type: 'security.session_locked' }));
   }
 
-  function handleUnlock() {
+  async function handleUnlock() {
     if (unlockInput !== masterPassword) {
       setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed' }));
       return;
@@ -229,6 +324,23 @@ export function App() {
     setSessionLock((current) => unlockSessionLock(current, 'master-password'));
     setUnlockInput('');
     setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success' }));
+  }
+
+  async function handleUnlockWithTouchId() {
+    try {
+      const unlocked = await unlockWithTouchId();
+      if (!unlocked) {
+        setCopyFeedback('Touch ID não disponível neste navegador/dispositivo.');
+        return;
+      }
+
+      setSessionLock((current) => unlockSessionLock(current, 'touch-id'));
+      setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success', metadata: { method: 'touch-id' } }));
+      setUnlockInput('');
+    } catch {
+      setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed', metadata: { method: 'touch-id' } }));
+      setCopyFeedback('Falha ao autenticar com Touch ID.');
+    }
   }
 
   const showOnboarding = vault.entries.length === 0;
@@ -248,7 +360,10 @@ export function App() {
           <button type="button" onClick={handleUnlock}>
             Desbloquear
           </button>
-          <p className="helper">Dica para ambiente local: senha padrão é <code>vault123</code>.</p>
+          <button type="button" onClick={handleUnlockWithTouchId}>
+            Desbloquear com Touch ID (Mac)
+          </button>
+          {copyFeedback && <p className="helper">{copyFeedback}</p>}
         </section>
       </main>
     );
@@ -356,20 +471,23 @@ export function App() {
           Senha mestra para reautenticação
           <input type="password" value={masterPassword} onChange={(event) => setMasterPassword(event.target.value)} />
         </label>
+        <button type="button" onClick={handleUpdateMasterPassword}>Salvar nova senha mestra</button>
         <button type="button" onClick={handleGeneratePassword}>Gerar senha</button>
         {generatedPassword && <code>{generatedPassword}</code>}
       </section>
 
       <section className="card">
-        <h2>Audit trail</h2>
-        <ul className="audit-list">
-          {recentEvents.map((event) => (
-            <li key={event.id}>
-              <strong>{event.type}</strong> <span>{new Date(event.createdAt).toLocaleString('pt-BR')}</span>
-            </li>
-          ))}
-          {recentEvents.length === 0 && <li>Nenhum evento ainda.</li>}
-        </ul>
+        <details>
+          <summary>Audit trail</summary>
+          <ul className="audit-list">
+            {recentEvents.map((event) => (
+              <li key={event.id}>
+                <strong>{event.type}</strong> <span>{new Date(event.createdAt).toLocaleString('pt-BR')}</span>
+              </li>
+            ))}
+            {recentEvents.length === 0 && <li>Nenhum evento ainda.</li>}
+          </ul>
+        </details>
       </section>
     </main>
   );
