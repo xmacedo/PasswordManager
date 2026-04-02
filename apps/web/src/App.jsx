@@ -128,37 +128,42 @@ export function App() {
   const [visiblePasswordIds, setVisiblePasswordIds] = useState({});
   const [copyFeedback, setCopyFeedback] = useState('');
   const [auditLog, setAuditLog] = useState(createAuditLog());
-  const [sessionLock, setSessionLock] = useState(() => unlockSessionLock(createSessionLock({ timeoutMs: 90_000 })));
+  const [sessionLock, setSessionLock] = useState(() => createSessionLock({ timeoutMs: 90_000 }));
   const [masterPassword, setMasterPassword] = useState('');
   const [encryptedMasterSecret, setEncryptedMasterSecret] = useState(DEFAULT_ENCRYPTED_MASTER_SECRET);
   const [unlockInput, setUnlockInput] = useState('');
+  const [isLoadingVault, setIsLoadingVault] = useState(true);
 
   useEffect(() => {
     async function initialize() {
-      const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
-      const loaded = await repository.load();
-      const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
-      const resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
+      try {
+        const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
+        const loaded = await repository.load();
+        const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
+        const resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
 
-      const decryptedEntries = await Promise.all(
-        loaded.vault.entries.map(async (entry) => {
-          if (!entry.password) return entry;
+        const decryptedEntries = await Promise.all(
+          loaded.vault.entries.map(async (entry) => {
+            if (!entry.password) return entry;
 
-          try {
-            const password = await decryptSecret(entry.password, resolvedMasterPassword);
-            return { ...entry, password };
-          } catch {
-            return { ...entry, password: '' };
-          }
-        })
-      );
+            try {
+              const password = await decryptSecret(entry.password, resolvedMasterPassword);
+              return { ...entry, password };
+            } catch {
+              return { ...entry, password: '' };
+            }
+          })
+        );
 
-      setMasterPassword(resolvedMasterPassword || defaultMasterPassword);
-      setEncryptedMasterSecret(persistedMasterSecret);
-      setVault({
-        ...loaded.vault,
-        entries: decryptedEntries
-      });
+        setMasterPassword(resolvedMasterPassword || defaultMasterPassword);
+        setEncryptedMasterSecret(persistedMasterSecret);
+        setVault({
+          ...loaded.vault,
+          entries: decryptedEntries
+        });
+      } finally {
+        setIsLoadingVault(false);
+      }
     }
 
     initialize();
@@ -346,6 +351,17 @@ export function App() {
   const showOnboarding = vault.entries.length === 0;
   const isSearching = searchTerm.trim().length > 0;
   const recentEvents = listRecentAuditEvents(auditLog, 8);
+
+  if (isLoadingVault) {
+    return (
+      <main className="container">
+        <section className="card lock-screen">
+          <h1>PasswordManager</h1>
+          <p>Carregando cofre padrão...</p>
+        </section>
+      </main>
+    );
+  }
 
   if (isSessionLocked(sessionLock)) {
     return (
