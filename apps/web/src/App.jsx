@@ -140,7 +140,13 @@ export function App() {
         const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
         const loaded = await repository.load();
         const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
-        const resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
+        let resolvedMasterPassword = defaultMasterPassword;
+
+        try {
+          resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
+        } catch {
+          resolvedMasterPassword = defaultMasterPassword;
+        }
 
         const decryptedEntries = await Promise.all(
           loaded.vault.entries.map(async (entry) => {
@@ -321,7 +327,7 @@ export function App() {
   }
 
   async function handleUnlock() {
-    if (unlockInput !== masterPassword) {
+    if (!masterPassword || !unlockInput || unlockInput !== masterPassword) {
       setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed' }));
       return;
     }

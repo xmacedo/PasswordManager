@@ -53,11 +53,11 @@ async function persistHandle(handle) {
   db.close();
 }
 
-async function promptForFileHandle() {
-  if (!window.showSaveFilePicker) return null;
+async function pickExistingFileHandle() {
+  if (!window.showOpenFilePicker) return null;
 
-  const handle = await window.showSaveFilePicker({
-    suggestedName: FILE_NAME,
+  const [handle] = await window.showOpenFilePicker({
+    multiple: false,
     types: [
       {
         description: 'Vault CSV',
@@ -68,8 +68,51 @@ async function promptForFileHandle() {
     ]
   });
 
+  return handle || null;
+}
+
+async function createNewFileHandle() {
+  if (!window.showSaveFilePicker) return null;
+  return window.showSaveFilePicker({
+    suggestedName: FILE_NAME,
+    types: [
+      {
+        description: 'Vault CSV',
+        accept: {
+          'text/csv': ['.csv']
+        }
+      }
+    ]
+  });
+}
+
+async function promptForFileHandle() {
+  let handle = null;
+
+  try {
+    handle = await pickExistingFileHandle();
+  } catch {
+    handle = null;
+  }
+
+  if (!handle) {
+    handle = await createNewFileHandle();
+  }
+
+  if (!handle) return null;
   await persistHandle(handle);
   return handle;
+}
+
+async function ensureReadWritePermission(handle) {
+  if (!handle?.queryPermission || !handle?.requestPermission) return true;
+
+  const options = { mode: 'readwrite' };
+  if ((await handle.queryPermission(options)) === 'granted') {
+    return true;
+  }
+
+  return (await handle.requestPermission(options)) === 'granted';
 }
 
 async function ensureFileHandle() {
@@ -82,7 +125,11 @@ async function ensureFileHandle() {
   }
 
   if (fileHandle) {
-    return fileHandle;
+    const hasPermission = await ensureReadWritePermission(fileHandle);
+    if (hasPermission) {
+      return fileHandle;
+    }
+    fileHandle = null;
   }
 
   fileHandle = await promptForFileHandle();
