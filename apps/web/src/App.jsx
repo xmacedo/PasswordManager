@@ -351,10 +351,9 @@ export function App() {
     return (
       <main className="container">
         <section className="card lock-screen">
-          <h1>Vault bloqueado</h1>
-          <p>Sessão expirada por inatividade. Reautentique para continuar.</p>
+          <h1>Password Manage</h1>
           <label>
-            Senha mestra
+            Senha
             <input type="password" value={unlockInput} onChange={(event) => setUnlockInput(event.target.value)} />
           </label>
           <button type="button" onClick={handleUnlock}>
