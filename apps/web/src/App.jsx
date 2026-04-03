@@ -352,7 +352,12 @@ export function App() {
       if (!selectedName) return;
       handleVaultLocationChange(selectedName);
       window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
-      window.location.reload();
+      const loadedState = await resolveVaultForLocation(selectedName, masterPassword);
+      setVault(loadedState.vault);
+      setEncryptedMasterSecret(loadedState.persistedMasterSecret);
+      setMasterPassword(loadedState.resolvedMasterPassword);
+      setCopyFeedback(`Arquivo "${selectedName}" selecionado com sucesso.`);
+    
     } catch {
       setCopyFeedback('Não foi possível selecionar um arquivo existente.');
     }
@@ -364,8 +369,9 @@ export function App() {
       if (!selectedName) return;
       handleVaultLocationChange(selectedName);
       window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
-      await persistVault(createEmptyVault());
-      window.location.reload();
+      await persistVault(createEmptyVault(), encryptedMasterSecret, masterPassword, selectedName);
+      setVault(createEmptyVault());
+      setCopyFeedback(`Arquivo "${selectedName}" criado com sucesso.`);
     } catch {
       setCopyFeedback('Não foi possível criar um novo arquivo de cofre.');
     }
