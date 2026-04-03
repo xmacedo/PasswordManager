@@ -1,6 +1,7 @@
 import { createEmptyVault } from '@password-manager/core';
 
 const FILE_NAME = 'password-manager.vault.csv';
+const LOCAL_STORAGE_PREFIX = 'pm-vault::';
 const HANDLE_DB_NAME = 'password-manager-storage';
 const HANDLE_STORE_NAME = 'handles';
 const HANDLE_KEY = 'default-vault-handle';
@@ -190,30 +191,26 @@ function toCsv({ vault, encryptedMasterSecret }) {
   return `${rows.join('\n')}\n`;
 }
 
+function normalizeLocation(location) {
+  return String(location || '').trim();
+}
+
+function getLocationStorageKey(location) {
+  return `${LOCAL_STORAGE_PREFIX}${normalizeLocation(location)}`;
+}
+
 export function createCsvVaultRepository() {
   return {
-    async getCurrentVaultFileName() {
-      const handle = await ensureFileHandle();
-      return handle?.name || '';
-    },
+    async load(options = {}) {
+      const location = normalizeLocation(options.location);
+      if (location) {
+        const raw = window.localStorage.getItem(getLocationStorageKey(location));
+        if (!raw) {
+          return { vault: createEmptyVault(), encryptedMasterSecret: null };
+        }
+        return parseCsv(raw);
+      }
 
-    async connectToExistingVault() {
-      const handle = await pickExistingFileHandle();
-      if (!handle) return '';
-      await persistHandle(handle);
-      fileHandle = handle;
-      return handle.name || '';
-    },
-
-    async createVaultFile() {
-      const handle = await createNewFileHandle();
-      if (!handle) return '';
-      await persistHandle(handle);
-      fileHandle = handle;
-      return handle.name || '';
-    },
-
-    async load() {
       const handle = await ensureFileHandle();
       if (!handle) {
         return { vault: createEmptyVault(), encryptedMasterSecret: null };
@@ -238,7 +235,13 @@ export function createCsvVaultRepository() {
       return parseCsv(text);
     },
 
-    async save(data) {
+    async save(data, options = {}) {
+      const location = normalizeLocation(options.location);
+      if (location) {
+        window.localStorage.setItem(getLocationStorageKey(location), toCsv(data));
+        return;
+      }
+
       const handle = await ensureFileHandle();
       if (!handle) return false;
 

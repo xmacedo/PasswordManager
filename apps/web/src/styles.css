@@ -194,6 +194,10 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.secondary-btn {
+  background: #334155;
+}
+
 code {
   display: block;
   margin-top: 1rem;
