@@ -249,6 +249,30 @@ export function createCsvVaultRepository() {
       await writable.write(toCsv(data));
       await writable.close();
       return true;
+},
+
+    async connectToExistingVault() {
+      const handle = await pickExistingFileHandle();
+      if (!handle) return null;
+
+      const hasPermission = await ensureReadWritePermission(handle);
+      if (!hasPermission) return null;
+
+      fileHandle = handle;
+      await persistHandle(handle);
+      return handle.name || FILE_NAME;
+    },
+
+    async createVaultFile() {
+      const handle = await createNewFileHandle();
+      if (!handle) return null;
+
+      const hasPermission = await ensureReadWritePermission(handle);
+      if (!hasPermission) return null;
+
+      fileHandle = handle;
+      await persistHandle(handle);
+      return handle.name || FILE_NAME;
     }
   };
 }

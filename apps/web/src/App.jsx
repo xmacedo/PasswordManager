@@ -200,10 +200,10 @@ export function App() {
 
   useEffect(() => {
     if (!masterPassword) {
-      window.localStorage.removeItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY);
+      window.localStorage.removeItem(MASTER_PASSWORD_STORAGE_KEY);
       return;
     }
-    window.localStorage.setItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY, masterPassword);
+    window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, masterPassword);
   }, [masterPassword]);
 
   useEffect(() => {
@@ -340,10 +340,10 @@ export function App() {
 
   function handleSaveVaultLocation() {
     if (!vaultLocation.trim()) {
-      window.localStorage.removeItem(VAULT_LOCATION_LOCAL_STORAGE_KEY);
+      window.localStorage.removeItem(VAULT_LOCATION_STORAGE_KEY);
       return;
     }
-    window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, vaultLocation.trim());
+    window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, vaultLocation.trim());
   }
 
   async function handleSelectExistingVault() {
@@ -351,7 +351,7 @@ export function App() {
       const selectedName = await repository.connectToExistingVault();
       if (!selectedName) return;
       handleVaultLocationChange(selectedName);
-      window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, selectedName);
+      window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
       window.location.reload();
     } catch {
       setCopyFeedback('Não foi possível selecionar um arquivo existente.');
@@ -363,7 +363,7 @@ export function App() {
       const selectedName = await repository.createVaultFile();
       if (!selectedName) return;
       handleVaultLocationChange(selectedName);
-      window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, selectedName);
+      window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
       await persistVault(createEmptyVault());
       window.location.reload();
     } catch {
@@ -465,7 +465,7 @@ export function App() {
             <input
               type="text"
               value={vaultLocation}
-              disabled={!canEditVaultLocation}
+              disabled={!isLocationEditable}
               onChange={(event) => handleVaultLocationChange(event.target.value)}
               placeholder="Ex: password-manager.vault.csv"
             />
@@ -473,9 +473,9 @@ export function App() {
           <label className="toggle-inline">
             <input
               type="checkbox"
-              checked={canEditVaultLocation}
+              checked={isLocationEditable}
               onChange={(event) => {
-                setCanEditVaultLocation(event.target.checked);
+                setIsLocationEditable(event.target.checked);
                 if (!event.target.checked) {
                   handleSaveVaultLocation();
                 }
@@ -484,7 +484,7 @@ export function App() {
             Habilitar edição do caminho
           </label>
           <div className="actions-row">
-            <button type="button" onClick={handleSaveVaultLocation} disabled={!canEditVaultLocation}>
+            <button type="button" onClick={handleSaveVaultLocation} disabled={!isLocationEditable}>
               Salvar caminho
             </button>
             <button type="button" onClick={handleSelectExistingVault}>
