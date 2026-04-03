@@ -135,6 +135,14 @@ async function ensureFileHandle() {
 
   return null;
 }
+async function getHandleForLocation(location) {
+  const normalizedLocation = normalizeLocation(location);
+  const handle = await ensureFileHandle();
+  if (!handle) return null;
+  if (!normalizedLocation) return handle;
+  return handle.name === normalizedLocation ? handle : null;
+}
+
 
 function parseCsv(text) {
   const lines = text.split(/\r?\n/).filter(Boolean);
@@ -204,6 +212,17 @@ export function createCsvVaultRepository() {
     async load(options = {}) {
       const location = normalizeLocation(options.location);
       if (location) {
+         const locationHandle = await getHandleForLocation(location);
+        if (locationHandle) {
+          const file = await locationHandle.getFile();
+          const text = await file.text();
+          if (!text.trim()) {
+            return { vault: createEmptyVault(), encryptedMasterSecret: null };
+          }
+          const parsed = parseCsv(text);
+          window.localStorage.setItem(getLocationStorageKey(location), toCsv(parsed));
+          return parsed;
+        }
         const raw = window.localStorage.getItem(getLocationStorageKey(location));
         if (!raw) {
           return { vault: createEmptyVault(), encryptedMasterSecret: null };
@@ -238,8 +257,17 @@ export function createCsvVaultRepository() {
     async save(data, options = {}) {
       const location = normalizeLocation(options.location);
       if (location) {
+        const locationHandle = await getHandleForLocation(location);
+        if (locationHandle) {
+          const writable = await locationHandle.createWritable();
+          const csv = toCsv(data);
+          await writable.write(csv);
+          await writable.close();
+          window.localStorage.setItem(getLocationStorageKey(location), csv);
+          return true;
+        }
         window.localStorage.setItem(getLocationStorageKey(location), toCsv(data));
-        return;
+        return true;
       }
 
       const handle = await ensureFileHandle();
