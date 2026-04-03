@@ -199,6 +199,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!masterPassword) {
+      window.localStorage.removeItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(MASTER_PASSWORD_LOCAL_STORAGE_KEY, masterPassword);
+  }, [masterPassword]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       setSessionLock((current) => (isSessionLocked(current) ? lockSessionLock(current) : current));
     }, 1500);
@@ -326,6 +334,43 @@ export function App() {
     });
   }
 
+  function handleVaultLocationChange(nextLocation) {
+    setVaultLocation(nextLocation);
+  }
+
+  function handleSaveVaultLocation() {
+    if (!vaultLocation.trim()) {
+      window.localStorage.removeItem(VAULT_LOCATION_LOCAL_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, vaultLocation.trim());
+  }
+
+  async function handleSelectExistingVault() {
+    try {
+      const selectedName = await repository.connectToExistingVault();
+      if (!selectedName) return;
+      handleVaultLocationChange(selectedName);
+      window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, selectedName);
+      window.location.reload();
+    } catch {
+      setCopyFeedback('Não foi possível selecionar um arquivo existente.');
+    }
+  }
+
+  async function handleCreateVaultFromLockScreen() {
+    try {
+      const selectedName = await repository.createVaultFile();
+      if (!selectedName) return;
+      handleVaultLocationChange(selectedName);
+      window.localStorage.setItem(VAULT_LOCATION_LOCAL_STORAGE_KEY, selectedName);
+      await persistVault(createEmptyVault());
+      window.location.reload();
+    } catch {
+      setCopyFeedback('Não foi possível criar um novo arquivo de cofre.');
+    }
+  }
+
   function getFolderName(folderId) {
     return vault.folders.find((folder) => folder.id === folderId)?.name || 'Sem pasta';
   }
@@ -415,6 +460,40 @@ export function App() {
       <main className="container">
         <section className="card lock-screen">
           <h1>Password Manage</h1>
+          <label>
+            Localização do arquivo de senhas
+            <input
+              type="text"
+              value={vaultLocation}
+              disabled={!canEditVaultLocation}
+              onChange={(event) => handleVaultLocationChange(event.target.value)}
+              placeholder="Ex: password-manager.vault.csv"
+            />
+          </label>
+          <label className="toggle-inline">
+            <input
+              type="checkbox"
+              checked={canEditVaultLocation}
+              onChange={(event) => {
+                setCanEditVaultLocation(event.target.checked);
+                if (!event.target.checked) {
+                  handleSaveVaultLocation();
+                }
+              }}
+            />
+            Habilitar edição do caminho
+          </label>
+          <div className="actions-row">
+            <button type="button" onClick={handleSaveVaultLocation} disabled={!canEditVaultLocation}>
+              Salvar caminho
+            </button>
+            <button type="button" onClick={handleSelectExistingVault}>
+              Selecionar arquivo existente
+            </button>
+            <button type="button" onClick={handleCreateVaultFromLockScreen}>
+              Criar arquivo do cofre
+            </button>
+          </div>
           <label>
             Senha
             <input type="password" value={unlockInput} onChange={(event) => setUnlockInput(event.target.value)} />

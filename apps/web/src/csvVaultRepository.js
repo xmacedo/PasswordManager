@@ -133,8 +133,7 @@ async function ensureFileHandle() {
     fileHandle = null;
   }
 
-  fileHandle = await promptForFileHandle();
-  return fileHandle;
+  return null;
 }
 
 function parseCsv(text) {
@@ -244,11 +243,12 @@ export function createCsvVaultRepository() {
       }
 
       const handle = await ensureFileHandle();
-      if (!handle) return;
+      if (!handle) return false;
 
       const writable = await handle.createWritable();
       await writable.write(toCsv(data));
       await writable.close();
+      return true;
     }
   };
 }
