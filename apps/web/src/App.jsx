@@ -29,6 +29,8 @@ import { createCsvVaultRepository } from './csvVaultRepository';
 
 const repository = createCsvVaultRepository();
 const MASTER_SECRET_KEY = 'pm-default-master-key';
+const MASTER_PASSWORD_STORAGE_KEY = 'pm-master-password';
+const VAULT_LOCATION_STORAGE_KEY = 'pm-vault-location';
 const DEFAULT_ENCRYPTED_MASTER_SECRET =
   '{"algorithm":"AES-GCM","kdf":"PBKDF2-SHA256","iterations":310000,"salt":"Gmh7ZxwB9XhS/eXs/eD/kQ==","iv":"8yDwDLUZAPaXbaWe","cipherText":"/smjUP0gCeO8CmeWbV4MhRoVQILYJiSw"}';
 
@@ -133,40 +135,61 @@ export function App() {
   const [encryptedMasterSecret, setEncryptedMasterSecret] = useState(DEFAULT_ENCRYPTED_MASTER_SECRET);
   const [unlockInput, setUnlockInput] = useState('');
   const [isLoadingVault, setIsLoadingVault] = useState(true);
+  const [vaultLocation, setVaultLocation] = useState('');
+  const [isLocationEditable, setIsLocationEditable] = useState(false);
+
+  async function resolveVaultForLocation(location, fallbackMasterPassword) {
+    const loaded = await repository.load({ location });
+    const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
+    let resolvedMasterPassword = fallbackMasterPassword;
+
+    if (!resolvedMasterPassword) {
+      resolvedMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
+    }
+
+    try {
+      resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
+    } catch {
+      // keep existing fallback
+    }
+
+    const decryptedEntries = await Promise.all(
+      loaded.vault.entries.map(async (entry) => {
+        if (!entry.password) return entry;
+
+        try {
+          const password = await decryptSecret(entry.password, resolvedMasterPassword);
+          return { ...entry, password };
+        } catch {
+          return { ...entry, password: '' };
+        }
+      })
+    );
+
+    return {
+      resolvedMasterPassword,
+      persistedMasterSecret,
+      vault: {
+        ...loaded.vault,
+        entries: decryptedEntries
+      }
+    };
+  }
 
   useEffect(() => {
     async function initialize() {
       try {
+        const localMasterPassword = window.localStorage.getItem(MASTER_PASSWORD_STORAGE_KEY) || '';
+        const localVaultLocation = window.localStorage.getItem(VAULT_LOCATION_STORAGE_KEY) || 'vault/principal';
         const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
-        const loaded = await repository.load();
-        const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
-        let resolvedMasterPassword = defaultMasterPassword;
+        const initialMasterPassword = localMasterPassword || defaultMasterPassword;
 
-        try {
-          resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
-        } catch {
-          resolvedMasterPassword = defaultMasterPassword;
-        }
+        setVaultLocation(localVaultLocation);
+        setMasterPassword(initialMasterPassword);
 
-        const decryptedEntries = await Promise.all(
-          loaded.vault.entries.map(async (entry) => {
-            if (!entry.password) return entry;
-
-            try {
-              const password = await decryptSecret(entry.password, resolvedMasterPassword);
-              return { ...entry, password };
-            } catch {
-              return { ...entry, password: '' };
-            }
-          })
-        );
-
-        setMasterPassword(resolvedMasterPassword || defaultMasterPassword);
-        setEncryptedMasterSecret(persistedMasterSecret);
-        setVault({
-          ...loaded.vault,
-          entries: decryptedEntries
-        });
+        const loadedState = await resolveVaultForLocation(localVaultLocation, initialMasterPassword);
+        setEncryptedMasterSecret(loadedState.persistedMasterSecret);
+        setVault(loadedState.vault);
       } finally {
         setIsLoadingVault(false);
       }
@@ -202,7 +225,12 @@ export function App() {
     });
   }, [entries, searchScope, searchTerm, vault.entries]);
 
-  async function persistVault(nextVault, masterSecret = encryptedMasterSecret, plainMasterPassword = masterPassword) {
+  async function persistVault(
+    nextVault,
+    masterSecret = encryptedMasterSecret,
+    plainMasterPassword = masterPassword,
+    location = vaultLocation
+  ) {
     const encryptedEntries = await Promise.all(
       nextVault.entries.map(async (entry) => ({
         ...entry,
@@ -216,7 +244,7 @@ export function App() {
         entries: encryptedEntries
       },
       encryptedMasterSecret: masterSecret
-    });
+    }, { location });
   }
 
   async function commit(nextVault, eventType, metadata = {}, options = {}) {
@@ -291,6 +319,7 @@ export function App() {
     const nextMasterSecret = await encryptSecret(nextPassword, MASTER_SECRET_KEY);
     setMasterPassword(nextPassword);
     setEncryptedMasterSecret(nextMasterSecret);
+    window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, nextPassword);
     await commit(vault, 'security.master_password_updated', {}, {
       masterSecret: nextMasterSecret,
       plainMasterPassword: nextPassword
@@ -327,11 +356,23 @@ export function App() {
   }
 
   async function handleUnlock() {
+    const normalizedLocation = vaultLocation.trim();
+    if (!normalizedLocation) {
+      setCopyFeedback('Informe a localização do arquivo antes de desbloquear.');
+      return;
+    }
+
     if (!masterPassword || !unlockInput || unlockInput !== masterPassword) {
       setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed' }));
       return;
     }
 
+    const loadedState = await resolveVaultForLocation(normalizedLocation, masterPassword);
+    setVault(loadedState.vault);
+    setEncryptedMasterSecret(loadedState.persistedMasterSecret);
+    setMasterPassword(loadedState.resolvedMasterPassword);
+    window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, loadedState.resolvedMasterPassword);
+    window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, normalizedLocation);
     setSessionLock((current) => unlockSessionLock(current, 'master-password'));
     setUnlockInput('');
     setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success' }));
@@ -378,6 +419,19 @@ export function App() {
             Senha
             <input type="password" value={unlockInput} onChange={(event) => setUnlockInput(event.target.value)} />
           </label>
+          <label>
+            Localização do arquivo de senhas
+            <input
+              type="text"
+              value={vaultLocation}
+              disabled={!isLocationEditable}
+              onChange={(event) => setVaultLocation(event.target.value)}
+              placeholder="ex: vault/principal"
+            />
+          </label>
+          <button type="button" className="secondary-btn" onClick={() => setIsLocationEditable((current) => !current)}>
+            {isLocationEditable ? 'Bloquear edição do caminho' : 'Habilitar edição do caminho'}
+          </button>
           <button type="button" onClick={handleUnlock}>
             Desbloquear
           </button>
