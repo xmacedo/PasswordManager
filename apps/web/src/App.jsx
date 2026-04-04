@@ -31,6 +31,7 @@ const repository = createCsvVaultRepository();
 const MASTER_SECRET_KEY = 'pm-default-master-key';
 const MASTER_PASSWORD_STORAGE_KEY = 'pm-master-password';
 const VAULT_LOCATION_STORAGE_KEY = 'pm-vault-location';
+const DEFAULT_VAULT_LOCATION = '/Users/felipemacedo/_dev/vault/password-manager.vault.csv';
 const DEFAULT_ENCRYPTED_MASTER_SECRET =
   '{"algorithm":"AES-GCM","kdf":"PBKDF2-SHA256","iterations":310000,"salt":"Gmh7ZxwB9XhS/eXs/eD/kQ==","iv":"8yDwDLUZAPaXbaWe","cipherText":"/smjUP0gCeO8CmeWbV4MhRoVQILYJiSw"}';
 
@@ -180,14 +181,25 @@ export function App() {
     async function initialize() {
       try {
         const localMasterPassword = window.localStorage.getItem(MASTER_PASSWORD_STORAGE_KEY) || '';
-        const localVaultLocation = window.localStorage.getItem(VAULT_LOCATION_STORAGE_KEY) || 'vault/principal';
+        const persistedVaultLocation = window.localStorage.getItem(VAULT_LOCATION_STORAGE_KEY) || '';
+        const localVaultLocation = persistedVaultLocation.trim() || DEFAULT_VAULT_LOCATION;
         const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
         const initialMasterPassword = localMasterPassword || defaultMasterPassword;
 
+        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, localVaultLocation);
         setVaultLocation(localVaultLocation);
         setMasterPassword(initialMasterPassword);
 
         const loadedState = await resolveVaultForLocation(localVaultLocation, initialMasterPassword);
+        if (!persistedVaultLocation.trim()) {
+          await repository.save(
+            {
+              vault: loadedState.vault,
+              encryptedMasterSecret: loadedState.persistedMasterSecret
+            },
+            { location: localVaultLocation }
+          );
+        }
         setEncryptedMasterSecret(loadedState.persistedMasterSecret);
         setVault(loadedState.vault);
       } finally {
