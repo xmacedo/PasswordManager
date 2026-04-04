@@ -465,9 +465,9 @@ export function App() {
     return (
       <main className="container">
         <section className="card lock-screen">
-          <h1>Password Manage</h1>
+          <h1>Password Manager</h1>
           <label>
-            Localização do arquivo de senhas
+            Vault Path:
             <input
               type="text"
               value={vaultLocation}
@@ -487,41 +487,30 @@ export function App() {
                 }
               }}
             />
-            Habilitar edição do caminho
+            Enable to change the file
           </label>
           <div className="actions-row">
             <button type="button" onClick={handleSaveVaultLocation} disabled={!isLocationEditable}>
-              Salvar caminho
+              Save
             </button>
             <button type="button" onClick={handleSelectExistingVault}>
-              Selecionar arquivo existente
+              Select file
             </button>
             <button type="button" onClick={handleCreateVaultFromLockScreen}>
-              Criar arquivo do cofre
+              +
             </button>
           </div>
           <label>
-            Senha
+            Password
             <input type="password" value={unlockInput} onChange={(event) => setUnlockInput(event.target.value)} />
           </label>
-          <label>
-            Localização do arquivo de senhas
-            <input
-              type="text"
-              value={vaultLocation}
-              disabled={!isLocationEditable}
-              onChange={(event) => setVaultLocation(event.target.value)}
-              placeholder="ex: vault/principal"
-            />
-          </label>
-          <button type="button" className="secondary-btn" onClick={() => setIsLocationEditable((current) => !current)}>
-            {isLocationEditable ? 'Bloquear edição do caminho' : 'Habilitar edição do caminho'}
-          </button>
+      
+          
           <button type="button" onClick={handleUnlock}>
             Desbloquear
-          </button>
+          </button>&nbsp;
           <button type="button" onClick={handleUnlockWithTouchId}>
-            Desbloquear com Touch ID (Mac)
+            Touch ID (Mac)
           </button>
           {copyFeedback && <p className="helper">{copyFeedback}</p>}
         </section>
