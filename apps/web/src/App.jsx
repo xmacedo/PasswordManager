@@ -912,14 +912,13 @@ export function App() {
       </section>
 
       <section className="card">
-        <h2>Sugestão de senha forte</h2>
+        <details>
+          <summary>Master Password</summary>
         <label>
-          Senha mestra para reautenticação
           <input type="password" value={masterPassword} onChange={(event) => setMasterPassword(event.target.value)} />
         </label>
-        <button type="button" onClick={handleUpdateMasterPassword} disabled={actionStatus.loading}>Salvar nova senha mestra</button>
-        <button type="button" onClick={handleGeneratePassword} disabled={actionStatus.loading}>Gerar senha</button>
-        {generatedPassword && <code>{generatedPassword}</code>}
+        <button type="button" onClick={handleUpdateMasterPassword} disabled={actionStatus.loading}>Save new master password</button>
+        </details>
       </section>
 
       <section className="card">
@@ -939,9 +938,8 @@ export function App() {
       {isCreateFolderModalOpen && (
         <div className="modal-backdrop" role="presentation" onClick={closeCreateFolderModal}>
           <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-create-folder-title" onClick={(event) => event.stopPropagation()}>
-            <h3 id="modal-create-folder-title">Nova pasta</h3>
+            <h3 id="modal-create-folder-title">New Folder</h3>
             <label>
-              Nome da pasta
               <input
                 type="text"
                 value={newFolderName}
@@ -952,10 +950,10 @@ export function App() {
             </label>
             <div className="actions-row modal-actions">
               <button type="button" onClick={handleCreateFolder} disabled={actionStatus.loading}>
-                Salvar pasta
+                Save
               </button>
               <button type="button" className="secondary-btn" onClick={closeCreateFolderModal} disabled={actionStatus.loading}>
-                Cancelar
+                Cancel
               </button>
             </div>
           </div>
@@ -966,10 +964,10 @@ export function App() {
         <div className="modal-backdrop" role="presentation" onClick={closeEntryForm}>
           <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-entry-title" onClick={(event) => event.stopPropagation()}>
             <form className="entry-form" onSubmit={handleSubmitEntryForm}>
-              <h3 id="modal-entry-title">{entryFormMode === 'create' ? 'Nova credencial' : 'Editar credencial'}</h3>
+              <h3 id="modal-entry-title">{entryFormMode === 'create' ? 'New Entry' : 'Edit Entry'}</h3>
               <div className="entry-form-grid">
                 <label>
-                  Título
+                  Name &nbsp;
                   <input
                     type="text"
                     value={entryFormData.title}
@@ -980,7 +978,7 @@ export function App() {
                   />
                 </label>
                 <label>
-                  Usuário/Login
+                  User/Login &nbsp;
                   <input
                     type="text"
                     value={entryFormData.username}
@@ -989,19 +987,19 @@ export function App() {
                   />
                 </label>
                 <label>
-                  Senha
+                  Password &nbsp;
                   <input
                     type="text"
                     value={entryFormData.password}
                     onChange={(event) => setEntryFormData((current) => ({ ...current, password: event.target.value }))}
                     placeholder="Informe uma senha"
-                  />
+                  />&nbsp;
+                  <button type="button" onClick={handleGeneratePassword} disabled={actionStatus.loading}>Generate</button>
+                  {generatedPassword && <code>{generatedPassword}</code>}
                 </label>
               </div>
               <div className="actions-row modal-actions">
-                <button type="submit" disabled={actionStatus.loading}>
-                  {entryFormMode === 'create' ? 'Salvar credencial' : 'Salvar alterações'}
-                </button>
+                <button type="submit" disabled={actionStatus.loading}>Save</button>
                 <button type="button" className="secondary-btn" onClick={closeEntryForm} disabled={actionStatus.loading}>
                   Cancelar
                 </button>

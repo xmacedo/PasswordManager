@@ -265,7 +265,7 @@ button:disabled {
 }
 
 .modal-card {
-  width: min(560px, 100%);
+  width: min(400px, 100%);
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 12px;
