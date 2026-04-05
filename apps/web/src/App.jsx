@@ -93,6 +93,18 @@ function maskPassword(password, isVisible) {
   return password ? '•'.repeat(Math.max(8, password.length)) : '—';
 }
 
+function getErrorMessage(error, fallbackMessage) {
+  if (error instanceof Error && error.message) {
+    return `${fallbackMessage}: ${error.message}`;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return `${fallbackMessage}: ${error}`;
+  }
+
+  return fallbackMessage;
+}
+
 async function copyText(text) {
   if (!text) return false;
 
@@ -526,8 +538,16 @@ export function App() {
   async function handleManualLock() {
     try {
       await persistCurrentVaultState();
-    } catch {
-      setCopyFeedback('Falha ao salvar o estado atual antes de bloquear.');
+    } catch (error) {
+      const feedback = getErrorMessage(error, 'Falha ao salvar o estado atual antes de bloquear');
+      console.error('Erro ao salvar estado do cofre antes do bloqueio manual.', error);
+      setCopyFeedback(feedback);
+      setAuditLog((current) =>
+        appendAuditEvent(current, {
+          type: 'vault.persist_failed_before_lock',
+          metadata: { message: feedback }
+        })
+      );
     }
     setSessionLock((current) => lockSessionLock(current));
     setAuditLog((current) => appendAuditEvent(current, { type: 'security.session_locked' }));
@@ -535,7 +555,17 @@ export function App() {
 
   useEffect(() => {
     if (!isSessionLocked(sessionLock)) return;
-    void persistCurrentVaultState();
+    void persistCurrentVaultState().catch((error) => {
+      const feedback = getErrorMessage(error, 'Falha ao salvar o estado atual ao bloquear a sessão');
+      console.error('Erro ao salvar estado do cofre durante bloqueio de sessão.', error);
+      setCopyFeedback(feedback);
+      setAuditLog((current) =>
+        appendAuditEvent(current, {
+          type: 'vault.persist_failed_on_lock',
+          metadata: { message: feedback }
+        })
+      );
+    });
   }, [sessionLock]);
 
   async function handleUnlock() {
