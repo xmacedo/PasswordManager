@@ -181,6 +181,9 @@ export function App() {
   const [vaultLocation, setVaultLocation] = useState('');
   const [isLocationEditable, setIsLocationEditable] = useState(false);
   const [expandedFolderIds, setExpandedFolderIds] = useState(() => new Set(['root']));
+  const [actionStatus, setActionStatus] = useState({ loading: false, message: '' });
+  const [entryFormMode, setEntryFormMode] = useState(null);
+  const [entryFormData, setEntryFormData] = useState({ id: '', title: '', username: '', password: '' });
   const vaultLocationRef = useRef('');
   const vaultRef = useRef(vault);
   const masterPasswordRef = useRef(masterPassword);
@@ -344,6 +347,15 @@ export function App() {
     await persistVault(nextVault, options.masterSecret || encryptedMasterSecret, options.plainMasterPassword || masterPassword);
   }
 
+  async function runWithLoading(message, action) {
+    setActionStatus({ loading: true, message });
+    try {
+      await action();
+    } finally {
+      setActionStatus({ loading: false, message: '' });
+    }
+  }
+
   function toggleFolderExpanded(folderId) {
     setExpandedFolderIds((current) => {
       const next = new Set(current);
@@ -365,8 +377,10 @@ export function App() {
   async function handleCreateFolder() {
     const name = window.prompt('Nome da nova pasta:');
     if (!name) return;
-    const nextVault = createFolder(vault, { parentId: selectedFolder.id, name });
-    await commit(nextVault, 'folder.created', { parentId: selectedFolder.id, name });
+    await runWithLoading('Criando pasta...', async () => {
+      const nextVault = createFolder(vault, { parentId: selectedFolder.id, name });
+      await commit(nextVault, 'folder.created', { parentId: selectedFolder.id, name });
+    });
   }
 
   async function handleRenameFolder() {
@@ -374,8 +388,10 @@ export function App() {
     const name = window.prompt('Novo nome da pasta:', selectedFolder.name);
     if (!name) return;
 
-    const nextVault = renameFolder(vault, { folderId: selectedFolder.id, name });
-    await commit(nextVault, 'folder.renamed', { folderId: selectedFolder.id, name });
+    await runWithLoading('Renomeando pasta...', async () => {
+      const nextVault = renameFolder(vault, { folderId: selectedFolder.id, name });
+      await commit(nextVault, 'folder.renamed', { folderId: selectedFolder.id, name });
+    });
   }
 
   async function handleDeleteFolder() {
@@ -385,52 +401,93 @@ export function App() {
 
     const deletedFolderId = selectedFolder.id;
     const parentId = selectedFolder.parentId || 'root';
-    const nextVault = deleteFolder(vault, { folderId: deletedFolderId });
-    setSelectedFolderId(parentId);
-    await commit(nextVault, 'folder.deleted', { folderId: deletedFolderId });
+    await runWithLoading('Excluindo pasta...', async () => {
+      const nextVault = deleteFolder(vault, { folderId: deletedFolderId });
+      setSelectedFolderId(parentId);
+      await commit(nextVault, 'folder.deleted', { folderId: deletedFolderId });
+    });
   }
 
-  async function handleCreateEntry() {
-    const title = window.prompt('Título da credencial (ex: GitHub):');
-    if (!title) return;
-
-    const username = window.prompt('Usuário/Login:') || '';
-    const password =
-      window.prompt('Senha (deixe vazio para gerar uma forte):') || generateStrongPassword({ length: 20 });
-
-    const nextVault = createEntry(vault, { folderId: selectedFolder.id, title, username, password });
-    await commit(nextVault, 'entry.created', { folderId: selectedFolder.id, title });
+  function openCreateEntryForm() {
+    setEntryFormMode('create');
+    setEntryFormData({
+      id: '',
+      title: '',
+      username: '',
+      password: generateStrongPassword({ length: 20, useDigits: true, useLowercase: true, useUppercase: true, useSymbols: true })
+    });
   }
 
-  async function handleEditEntry(entry) {
-    const title = window.prompt('Editar título:', entry.title);
-    if (!title) return;
+  function openEditEntryForm(entry) {
+    setEntryFormMode('edit');
+    setEntryFormData({
+      id: entry.id,
+      title: entry.title,
+      username: entry.username || '',
+      password: entry.password || ''
+    });
+  }
 
-    const username = window.prompt('Editar usuário/login:', entry.username) || '';
-    const password = window.prompt('Editar senha:', entry.password) || '';
-    const nextVault = updateEntry(vault, { entryId: entry.id, title, username, password });
-    await commit(nextVault, 'entry.updated', { entryId: entry.id, title });
+  function closeEntryForm() {
+    setEntryFormMode(null);
+    setEntryFormData({ id: '', title: '', username: '', password: '' });
+  }
+
+  async function handleSubmitEntryForm(event) {
+    event.preventDefault();
+
+    const title = entryFormData.title.trim();
+    if (!title) {
+      setCopyFeedback('Informe o título da credencial.');
+      return;
+    }
+
+    const username = entryFormData.username.trim();
+    const password = entryFormData.password.trim() || generateStrongPassword({ length: 20 });
+
+    if (entryFormMode === 'create') {
+      await runWithLoading('Salvando nova credencial...', async () => {
+        const nextVault = createEntry(vault, { folderId: selectedFolder.id, title, username, password });
+        await commit(nextVault, 'entry.created', { folderId: selectedFolder.id, title });
+      });
+      setCopyFeedback(`Credencial "${title}" criada com sucesso.`);
+      closeEntryForm();
+      return;
+    }
+
+    if (entryFormMode === 'edit' && entryFormData.id) {
+      await runWithLoading('Atualizando credencial...', async () => {
+        const nextVault = updateEntry(vault, { entryId: entryFormData.id, title, username, password });
+        await commit(nextVault, 'entry.updated', { entryId: entryFormData.id, title });
+      });
+      setCopyFeedback(`Credencial "${title}" atualizada com sucesso.`);
+      closeEntryForm();
+    }
   }
 
   async function handleDeleteEntry(entryId) {
     const confirmed = window.confirm('Remover credencial?');
     if (!confirmed) return;
 
-    const nextVault = deleteEntry(vault, { entryId });
-    await commit(nextVault, 'entry.deleted', { entryId });
+    await runWithLoading('Excluindo credencial...', async () => {
+      const nextVault = deleteEntry(vault, { entryId });
+      await commit(nextVault, 'entry.deleted', { entryId });
+    });
   }
 
   async function handleUpdateMasterPassword() {
     const nextPassword = window.prompt('Nova senha mestra:', masterPassword);
     if (!nextPassword) return;
 
-    const nextMasterSecret = await encryptSecret(nextPassword, MASTER_SECRET_KEY);
-    setMasterPassword(nextPassword);
-    setEncryptedMasterSecret(nextMasterSecret);
-    window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, nextPassword);
-    await commit(vault, 'security.master_password_updated', {}, {
-      masterSecret: nextMasterSecret,
-      plainMasterPassword: nextPassword
+    await runWithLoading('Atualizando senha mestra...', async () => {
+      const nextMasterSecret = await encryptSecret(nextPassword, MASTER_SECRET_KEY);
+      setMasterPassword(nextPassword);
+      setEncryptedMasterSecret(nextMasterSecret);
+      window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, nextPassword);
+      await commit(vault, 'security.master_password_updated', {}, {
+        masterSecret: nextMasterSecret,
+        plainMasterPassword: nextPassword
+      });
     });
   }
 
@@ -448,35 +505,38 @@ export function App() {
   }
 
   async function handleSelectExistingVault() {
-    try {
-      const selectedName = await repository.connectToExistingVault();
-      if (!selectedName) return;
-      handleVaultLocationChange(selectedName);
-      window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
-      const loadedState = await resolveVaultForLocation(selectedName, masterPassword);
-      setVault(loadedState.vault);
-      setEncryptedMasterSecret(loadedState.persistedMasterSecret);
-      setMasterPassword(loadedState.resolvedMasterPassword);
-      setCopyFeedback(`Arquivo "${selectedName}" selecionado com sucesso.`);
-    
-    } catch {
-      setCopyFeedback('Não foi possível selecionar um arquivo existente.');
-    }
+    await runWithLoading('Selecionando arquivo de cofre...', async () => {
+      try {
+        const selectedName = await repository.connectToExistingVault();
+        if (!selectedName) return;
+        handleVaultLocationChange(selectedName);
+        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
+        const loadedState = await resolveVaultForLocation(selectedName, masterPassword);
+        setVault(loadedState.vault);
+        setEncryptedMasterSecret(loadedState.persistedMasterSecret);
+        setMasterPassword(loadedState.resolvedMasterPassword);
+        setCopyFeedback(`Arquivo "${selectedName}" selecionado com sucesso.`);
+      } catch {
+        setCopyFeedback('Não foi possível selecionar um arquivo existente.');
+      }
+    });
   }
 
   async function handleCreateVaultFromLockScreen() {
-    try {
-      const selectedName = await repository.createVaultFile();
-      if (!selectedName) return;
-      handleVaultLocationChange(selectedName);
-      window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
-      await persistVault(createEmptyVault(), encryptedMasterSecret, masterPassword, selectedName);
-      setVault(createEmptyVault());
-      setExpandedFolderIds(new Set(['root']));
-      setCopyFeedback(`Arquivo "${selectedName}" criado com sucesso.`);
-    } catch {
-      setCopyFeedback('Não foi possível criar um novo arquivo de cofre.');
-    }
+    await runWithLoading('Criando novo arquivo de cofre...', async () => {
+      try {
+        const selectedName = await repository.createVaultFile();
+        if (!selectedName) return;
+        handleVaultLocationChange(selectedName);
+        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
+        await persistVault(createEmptyVault(), encryptedMasterSecret, masterPassword, selectedName);
+        setVault(createEmptyVault());
+        setExpandedFolderIds(new Set(['root']));
+        setCopyFeedback(`Arquivo "${selectedName}" criado com sucesso.`);
+      } catch {
+        setCopyFeedback('Não foi possível criar um novo arquivo de cofre.');
+      }
+    });
   }
 
   function handleOpenButtercupImport() {
@@ -493,22 +553,24 @@ export function App() {
     );
     if (!confirmed) return;
 
-    try {
-      const csvText = await file.text();
-      const imported = importButtercupCsvToVault(csvText);
-      setSelectedFolderId('root');
-      setExpandedFolderIds(new Set(['root']));
-      await commit(imported.vault, 'vault.imported.buttercup', {
-        fileName: file.name,
-        importedEntries: imported.summary.entries,
-        importedGroups: imported.summary.groups
-      });
-      setCopyFeedback(
-        `Importação concluída: ${imported.summary.entries} credenciais e ${imported.summary.groups} grupos do Buttercup.`
-      );
-    } catch (error) {
-      setCopyFeedback(error instanceof Error ? error.message : 'Falha ao importar CSV do Buttercup.');
-    }
+    await runWithLoading('Importando CSV do Buttercup...', async () => {
+      try {
+        const csvText = await file.text();
+        const imported = importButtercupCsvToVault(csvText);
+        setSelectedFolderId('root');
+        setExpandedFolderIds(new Set(['root']));
+        await commit(imported.vault, 'vault.imported.buttercup', {
+          fileName: file.name,
+          importedEntries: imported.summary.entries,
+          importedGroups: imported.summary.groups
+        });
+        setCopyFeedback(
+          `Importação concluída: ${imported.summary.entries} credenciais e ${imported.summary.groups} grupos do Buttercup.`
+        );
+      } catch (error) {
+        setCopyFeedback(error instanceof Error ? error.message : 'Falha ao importar CSV do Buttercup.');
+      }
+    });
   }
 
   function getFolderName(folderId) {
@@ -536,21 +598,23 @@ export function App() {
   }
 
   async function handleManualLock() {
-    try {
-      await persistCurrentVaultState();
-    } catch (error) {
-      const feedback = getErrorMessage(error, 'Falha ao salvar o estado atual antes de bloquear');
-      console.error('Erro ao salvar estado do cofre antes do bloqueio manual.', error);
-      setCopyFeedback(feedback);
-      setAuditLog((current) =>
-        appendAuditEvent(current, {
-          type: 'vault.persist_failed_before_lock',
-          metadata: { message: feedback }
-        })
-      );
-    }
-    setSessionLock((current) => lockSessionLock(current));
-    setAuditLog((current) => appendAuditEvent(current, { type: 'security.session_locked' }));
+    await runWithLoading('Bloqueando sessão...', async () => {
+      try {
+        await persistCurrentVaultState();
+      } catch (error) {
+        const feedback = getErrorMessage(error, 'Falha ao salvar o estado atual antes de bloquear');
+        console.error('Erro ao salvar estado do cofre antes do bloqueio manual.', error);
+        setCopyFeedback(feedback);
+        setAuditLog((current) =>
+          appendAuditEvent(current, {
+            type: 'vault.persist_failed_before_lock',
+            metadata: { message: feedback }
+          })
+        );
+      }
+      setSessionLock((current) => lockSessionLock(current));
+      setAuditLog((current) => appendAuditEvent(current, { type: 'security.session_locked' }));
+    });
   }
 
   useEffect(() => {
@@ -580,32 +644,36 @@ export function App() {
       return;
     }
 
-    const loadedState = await resolveVaultForLocation(normalizedLocation, masterPassword);
-    setVault(loadedState.vault);
-    setEncryptedMasterSecret(loadedState.persistedMasterSecret);
-    setMasterPassword(loadedState.resolvedMasterPassword);
-    window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, loadedState.resolvedMasterPassword);
-    window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, normalizedLocation);
-    setSessionLock((current) => unlockSessionLock(current, 'master-password'));
-    setUnlockInput('');
-    setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success' }));
+    await runWithLoading('Desbloqueando cofre...', async () => {
+      const loadedState = await resolveVaultForLocation(normalizedLocation, masterPassword);
+      setVault(loadedState.vault);
+      setEncryptedMasterSecret(loadedState.persistedMasterSecret);
+      setMasterPassword(loadedState.resolvedMasterPassword);
+      window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, loadedState.resolvedMasterPassword);
+      window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, normalizedLocation);
+      setSessionLock((current) => unlockSessionLock(current, 'master-password'));
+      setUnlockInput('');
+      setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success' }));
+    });
   }
 
   async function handleUnlockWithTouchId() {
-    try {
-      const unlocked = await unlockWithTouchId();
-      if (!unlocked) {
-        setCopyFeedback('Touch ID não disponível neste navegador/dispositivo.');
-        return;
-      }
+    await runWithLoading('Validando Touch ID...', async () => {
+      try {
+        const unlocked = await unlockWithTouchId();
+        if (!unlocked) {
+          setCopyFeedback('Touch ID não disponível neste navegador/dispositivo.');
+          return;
+        }
 
-      setSessionLock((current) => unlockSessionLock(current, 'touch-id'));
-      setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success', metadata: { method: 'touch-id' } }));
-      setUnlockInput('');
-    } catch {
-      setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed', metadata: { method: 'touch-id' } }));
-      setCopyFeedback('Falha ao autenticar com Touch ID.');
-    }
+        setSessionLock((current) => unlockSessionLock(current, 'touch-id'));
+        setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success', metadata: { method: 'touch-id' } }));
+        setUnlockInput('');
+      } catch {
+        setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed', metadata: { method: 'touch-id' } }));
+        setCopyFeedback('Falha ao autenticar com Touch ID.');
+      }
+    });
   }
 
   const showOnboarding = vault.entries.length === 0;
@@ -655,10 +723,10 @@ export function App() {
             <button type="button" onClick={handleSaveVaultLocation} disabled={!isLocationEditable}>
               Save
             </button>
-            <button type="button" onClick={handleSelectExistingVault}>
+            <button type="button" onClick={handleSelectExistingVault} disabled={actionStatus.loading}>
               Select file
             </button>
-            <button type="button" onClick={handleCreateVaultFromLockScreen}>
+            <button type="button" onClick={handleCreateVaultFromLockScreen} disabled={actionStatus.loading}>
               +
             </button>
           </div>
@@ -668,12 +736,17 @@ export function App() {
           </label>
       
           
-          <button type="button" onClick={handleUnlock}>
+          <button type="button" onClick={handleUnlock} disabled={actionStatus.loading}>
             Desbloquear
           </button>&nbsp;
-          <button type="button" onClick={handleUnlockWithTouchId}>
+          <button type="button" onClick={handleUnlockWithTouchId} disabled={actionStatus.loading}>
             Touch ID (Mac)
           </button>
+          {actionStatus.loading && (
+            <p className="processing-message" role="status" aria-live="polite">
+              <span className="spinner" aria-hidden="true" /> {actionStatus.message || 'Processando...'}
+            </p>
+          )}
           {copyFeedback && <p className="helper">{copyFeedback}</p>}
         </section>
       </main>
@@ -724,13 +797,63 @@ export function App() {
             ))}
           </div>
 
+          {actionStatus.loading && (
+            <p className="processing-message" role="status" aria-live="polite">
+              <span className="spinner" aria-hidden="true" /> {actionStatus.message || 'Processando...'}
+            </p>
+          )}
+
           <div className="actions-row">
-            <button type="button" onClick={handleCreateFolder}>+ Nova pasta</button>
-            <button type="button" onClick={handleRenameFolder} disabled={selectedFolder.id === 'root'}>Renomear pasta</button>
-            <button type="button" onClick={handleDeleteFolder} disabled={selectedFolder.id === 'root'}>Excluir pasta</button>
-            <button type="button" onClick={handleCreateEntry}>+ Nova credencial</button>
-            <button type="button" onClick={handleOpenButtercupImport}>Importar CSV Buttercup</button>
+            <button type="button" onClick={handleCreateFolder} disabled={actionStatus.loading}>+ Nova pasta</button>
+            <button type="button" onClick={handleRenameFolder} disabled={selectedFolder.id === 'root' || actionStatus.loading}>Renomear pasta</button>
+            <button type="button" onClick={handleDeleteFolder} disabled={selectedFolder.id === 'root' || actionStatus.loading}>Excluir pasta</button>
+            <button type="button" onClick={openCreateEntryForm} disabled={actionStatus.loading}>+ Nova credencial</button>
+            <button type="button" onClick={handleOpenButtercupImport} disabled={actionStatus.loading}>Importar CSV Buttercup</button>
           </div>
+
+          {entryFormMode && (
+            <form className="entry-form" onSubmit={handleSubmitEntryForm}>
+              <h3>{entryFormMode === 'create' ? 'Nova credencial' : 'Editar credencial'}</h3>
+              <div className="entry-form-grid">
+                <label>
+                  Título
+                  <input
+                    type="text"
+                    value={entryFormData.title}
+                    onChange={(event) => setEntryFormData((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="Ex: GitHub"
+                    required
+                  />
+                </label>
+                <label>
+                  Usuário/Login
+                  <input
+                    type="text"
+                    value={entryFormData.username}
+                    onChange={(event) => setEntryFormData((current) => ({ ...current, username: event.target.value }))}
+                    placeholder="email@empresa.com"
+                  />
+                </label>
+                <label>
+                  Senha
+                  <input
+                    type="text"
+                    value={entryFormData.password}
+                    onChange={(event) => setEntryFormData((current) => ({ ...current, password: event.target.value }))}
+                    placeholder="Informe uma senha"
+                  />
+                </label>
+              </div>
+              <div className="actions-row">
+                <button type="submit" disabled={actionStatus.loading}>
+                  {entryFormMode === 'create' ? 'Salvar credencial' : 'Salvar alterações'}
+                </button>
+                <button type="button" className="secondary-btn" onClick={closeEntryForm} disabled={actionStatus.loading}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          )}
 
           <div className="search-bar">
             <input
@@ -780,9 +903,9 @@ export function App() {
                     {breach.level !== 'ok' && <p className={`risk risk-${breach.level}`}>⚠️ {breach.reasons[0]}</p>}
                   </div>
                   <div className="entry-actions">
-                    <button type="button" onClick={() => handleCopyPassword(entry)}>Copiar senha</button>
-                    <button type="button" onClick={() => handleEditEntry(entry)}>Editar</button>
-                    <button type="button" onClick={() => handleDeleteEntry(entry.id)}>Excluir</button>
+                    <button type="button" onClick={() => handleCopyPassword(entry)} disabled={actionStatus.loading}>Copiar senha</button>
+                    <button type="button" onClick={() => openEditEntryForm(entry)} disabled={actionStatus.loading}>Editar</button>
+                    <button type="button" onClick={() => handleDeleteEntry(entry.id)} disabled={actionStatus.loading}>Excluir</button>
                   </div>
                 </li>
               );
@@ -797,8 +920,8 @@ export function App() {
           Senha mestra para reautenticação
           <input type="password" value={masterPassword} onChange={(event) => setMasterPassword(event.target.value)} />
         </label>
-        <button type="button" onClick={handleUpdateMasterPassword}>Salvar nova senha mestra</button>
-        <button type="button" onClick={handleGeneratePassword}>Gerar senha</button>
+        <button type="button" onClick={handleUpdateMasterPassword} disabled={actionStatus.loading}>Salvar nova senha mestra</button>
+        <button type="button" onClick={handleGeneratePassword} disabled={actionStatus.loading}>Gerar senha</button>
         {generatedPassword && <code>{generatedPassword}</code>}
       </section>
 
