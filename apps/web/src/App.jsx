@@ -184,6 +184,8 @@ export function App() {
   const [actionStatus, setActionStatus] = useState({ loading: false, message: '' });
   const [entryFormMode, setEntryFormMode] = useState(null);
   const [entryFormData, setEntryFormData] = useState({ id: '', title: '', username: '', password: '' });
+  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   const vaultLocationRef = useRef('');
   const vaultRef = useRef(vault);
   const masterPasswordRef = useRef(masterPassword);
@@ -375,12 +377,18 @@ export function App() {
   }
 
   async function handleCreateFolder() {
-    const name = window.prompt('Nome da nova pasta:');
-    if (!name) return;
+    const name = newFolderName.trim();
+    if (!name) {
+      setCopyFeedback('Informe o nome da nova pasta.');
+      return;
+    }
     await runWithLoading('Criando pasta...', async () => {
       const nextVault = createFolder(vault, { parentId: selectedFolder.id, name });
       await commit(nextVault, 'folder.created', { parentId: selectedFolder.id, name });
     });
+    setNewFolderName('');
+    setIsCreateFolderModalOpen(false);
+    setCopyFeedback(`Pasta "${name}" criada com sucesso.`);
   }
 
   async function handleRenameFolder() {
@@ -431,6 +439,36 @@ export function App() {
   function closeEntryForm() {
     setEntryFormMode(null);
     setEntryFormData({ id: '', title: '', username: '', password: '' });
+  }
+
+  function openCreateFolderModal() {
+    setIsCreateFolderModalOpen(true);
+    setNewFolderName('');
+  }
+
+  function closeCreateFolderModal() {
+    setIsCreateFolderModalOpen(false);
+    setNewFolderName('');
+  }
+
+  function resolveSelectedLocationPath(selectedName, currentLocation) {
+    const normalizedName = String(selectedName || '').trim();
+    if (!normalizedName) return '';
+
+    if (/[\\/]/.test(normalizedName)) {
+      return normalizedName;
+    }
+
+    const normalizedCurrent = String(currentLocation || '').trim();
+    const separatorMatch = normalizedCurrent.match(/[\\/](?=[^\\/]*$)/);
+    if (!separatorMatch) {
+      return normalizedName;
+    }
+
+    const separatorIndex = separatorMatch.index ?? -1;
+    if (separatorIndex < 0) return normalizedName;
+    const directoryPath = normalizedCurrent.slice(0, separatorIndex + 1);
+    return `${directoryPath}${normalizedName}`;
   }
 
   async function handleSubmitEntryForm(event) {
@@ -509,13 +547,14 @@ export function App() {
       try {
         const selectedName = await repository.connectToExistingVault();
         if (!selectedName) return;
-        handleVaultLocationChange(selectedName);
-        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
-        const loadedState = await resolveVaultForLocation(selectedName, masterPassword);
+        const resolvedLocation = resolveSelectedLocationPath(selectedName, vaultLocationRef.current || vaultLocation);
+        handleVaultLocationChange(resolvedLocation);
+        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, resolvedLocation);
+        const loadedState = await resolveVaultForLocation(resolvedLocation, masterPassword);
         setVault(loadedState.vault);
         setEncryptedMasterSecret(loadedState.persistedMasterSecret);
         setMasterPassword(loadedState.resolvedMasterPassword);
-        setCopyFeedback(`Arquivo "${selectedName}" selecionado com sucesso.`);
+        setCopyFeedback(`Arquivo "${resolvedLocation}" selecionado com sucesso.`);
       } catch {
         setCopyFeedback('Não foi possível selecionar um arquivo existente.');
       }
@@ -527,12 +566,13 @@ export function App() {
       try {
         const selectedName = await repository.createVaultFile();
         if (!selectedName) return;
-        handleVaultLocationChange(selectedName);
-        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
-        await persistVault(createEmptyVault(), encryptedMasterSecret, masterPassword, selectedName);
+        const resolvedLocation = resolveSelectedLocationPath(selectedName, vaultLocationRef.current || vaultLocation);
+        handleVaultLocationChange(resolvedLocation);
+        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, resolvedLocation);
+        await persistVault(createEmptyVault(), encryptedMasterSecret, masterPassword, resolvedLocation);
         setVault(createEmptyVault());
         setExpandedFolderIds(new Set(['root']));
-        setCopyFeedback(`Arquivo "${selectedName}" criado com sucesso.`);
+        setCopyFeedback(`Arquivo "${resolvedLocation}" criado com sucesso.`);
       } catch {
         setCopyFeedback('Não foi possível criar um novo arquivo de cofre.');
       }
@@ -706,6 +746,7 @@ export function App() {
               placeholder="Ex: password-manager.vault.csv"
             />
           </label>
+          {vaultLocation && <p className="helper">Caminho completo: {vaultLocation}</p>}
           <label className="toggle-inline">
             <input
               type="checkbox"
@@ -804,56 +845,12 @@ export function App() {
           )}
 
           <div className="actions-row">
-            <button type="button" onClick={handleCreateFolder} disabled={actionStatus.loading}>+ Nova pasta</button>
+            <button type="button" onClick={openCreateFolderModal} disabled={actionStatus.loading}>+ Nova pasta</button>
             <button type="button" onClick={handleRenameFolder} disabled={selectedFolder.id === 'root' || actionStatus.loading}>Renomear pasta</button>
             <button type="button" onClick={handleDeleteFolder} disabled={selectedFolder.id === 'root' || actionStatus.loading}>Excluir pasta</button>
             <button type="button" onClick={openCreateEntryForm} disabled={actionStatus.loading}>+ Nova credencial</button>
             <button type="button" onClick={handleOpenButtercupImport} disabled={actionStatus.loading}>Importar CSV Buttercup</button>
           </div>
-
-          {entryFormMode && (
-            <form className="entry-form" onSubmit={handleSubmitEntryForm}>
-              <h3>{entryFormMode === 'create' ? 'Nova credencial' : 'Editar credencial'}</h3>
-              <div className="entry-form-grid">
-                <label>
-                  Título
-                  <input
-                    type="text"
-                    value={entryFormData.title}
-                    onChange={(event) => setEntryFormData((current) => ({ ...current, title: event.target.value }))}
-                    placeholder="Ex: GitHub"
-                    required
-                  />
-                </label>
-                <label>
-                  Usuário/Login
-                  <input
-                    type="text"
-                    value={entryFormData.username}
-                    onChange={(event) => setEntryFormData((current) => ({ ...current, username: event.target.value }))}
-                    placeholder="email@empresa.com"
-                  />
-                </label>
-                <label>
-                  Senha
-                  <input
-                    type="text"
-                    value={entryFormData.password}
-                    onChange={(event) => setEntryFormData((current) => ({ ...current, password: event.target.value }))}
-                    placeholder="Informe uma senha"
-                  />
-                </label>
-              </div>
-              <div className="actions-row">
-                <button type="submit" disabled={actionStatus.loading}>
-                  {entryFormMode === 'create' ? 'Salvar credencial' : 'Salvar alterações'}
-                </button>
-                <button type="button" className="secondary-btn" onClick={closeEntryForm} disabled={actionStatus.loading}>
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          )}
 
           <div className="search-bar">
             <input
@@ -938,6 +935,81 @@ export function App() {
           </ul>
         </details>
       </section>
+
+      {isCreateFolderModalOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={closeCreateFolderModal}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-create-folder-title" onClick={(event) => event.stopPropagation()}>
+            <h3 id="modal-create-folder-title">Nova pasta</h3>
+            <label>
+              Nome da pasta
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(event) => setNewFolderName(event.target.value)}
+                placeholder="Ex: Trabalho"
+                autoFocus
+              />
+            </label>
+            <div className="actions-row modal-actions">
+              <button type="button" onClick={handleCreateFolder} disabled={actionStatus.loading}>
+                Salvar pasta
+              </button>
+              <button type="button" className="secondary-btn" onClick={closeCreateFolderModal} disabled={actionStatus.loading}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {entryFormMode && (
+        <div className="modal-backdrop" role="presentation" onClick={closeEntryForm}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-entry-title" onClick={(event) => event.stopPropagation()}>
+            <form className="entry-form" onSubmit={handleSubmitEntryForm}>
+              <h3 id="modal-entry-title">{entryFormMode === 'create' ? 'Nova credencial' : 'Editar credencial'}</h3>
+              <div className="entry-form-grid">
+                <label>
+                  Título
+                  <input
+                    type="text"
+                    value={entryFormData.title}
+                    onChange={(event) => setEntryFormData((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="Ex: GitHub"
+                    required
+                    autoFocus
+                  />
+                </label>
+                <label>
+                  Usuário/Login
+                  <input
+                    type="text"
+                    value={entryFormData.username}
+                    onChange={(event) => setEntryFormData((current) => ({ ...current, username: event.target.value }))}
+                    placeholder="email@empresa.com"
+                  />
+                </label>
+                <label>
+                  Senha
+                  <input
+                    type="text"
+                    value={entryFormData.password}
+                    onChange={(event) => setEntryFormData((current) => ({ ...current, password: event.target.value }))}
+                    placeholder="Informe uma senha"
+                  />
+                </label>
+              </div>
+              <div className="actions-row modal-actions">
+                <button type="submit" disabled={actionStatus.loading}>
+                  {entryFormMode === 'create' ? 'Salvar credencial' : 'Salvar alterações'}
+                </button>
+                <button type="button" className="secondary-btn" onClick={closeEntryForm} disabled={actionStatus.loading}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
