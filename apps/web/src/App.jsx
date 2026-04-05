@@ -26,6 +26,7 @@ import {
 } from '@password-manager/core';
 
 import { createCsvVaultRepository } from './csvVaultRepository';
+import { importButtercupCsvToVault } from './buttercupCsvImport';
 
 const repository = createCsvVaultRepository();
 const MASTER_SECRET_KEY = 'pm-default-master-key';
@@ -139,6 +140,7 @@ export function App() {
   const [vaultLocation, setVaultLocation] = useState('');
   const [isLocationEditable, setIsLocationEditable] = useState(false);
   const vaultLocationRef = useRef('');
+  const buttercupImportInputRef = useRef(null);
 
   async function resolveVaultForLocation(location, fallbackMasterPassword) {
     const loaded = await repository.load({ location });
@@ -392,6 +394,37 @@ export function App() {
     }
   }
 
+  function handleOpenButtercupImport() {
+    buttercupImportInputRef.current?.click();
+  }
+
+  async function handleImportButtercupCsv(event) {
+    const [file] = event.target.files || [];
+    event.target.value = '';
+    if (!file) return;
+
+    const confirmed = window.confirm(
+      'Importar do Buttercup vai substituir o cofre atual em memória. Deseja continuar?'
+    );
+    if (!confirmed) return;
+
+    try {
+      const csvText = await file.text();
+      const imported = importButtercupCsvToVault(csvText);
+      setSelectedFolderId('root');
+      await commit(imported.vault, 'vault.imported.buttercup', {
+        fileName: file.name,
+        importedEntries: imported.summary.entries,
+        importedGroups: imported.summary.groups
+      });
+      setCopyFeedback(
+        `Importação concluída: ${imported.summary.entries} credenciais e ${imported.summary.groups} grupos do Buttercup.`
+      );
+    } catch (error) {
+      setCopyFeedback(error instanceof Error ? error.message : 'Falha ao importar CSV do Buttercup.');
+    }
+  }
+
   function getFolderName(folderId) {
     return vault.folders.find((folder) => folder.id === folderId)?.name || 'Sem pasta';
   }
@@ -539,6 +572,13 @@ export function App() {
       <p>v0.4.0: hardening com timeout de sessão, alertas de vazamento e logs de auditoria.</p>
 
       <section className="layout">
+        <input
+          ref={buttercupImportInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          onChange={handleImportButtercupCsv}
+          style={{ display: 'none' }}
+        />
         <aside className="card sidebar">
           <h2>Explorer</h2>
           <button type="button" onClick={() => setSelectedFolderId('root')} className="tree-root">
@@ -568,6 +608,7 @@ export function App() {
             <button type="button" onClick={handleRenameFolder} disabled={selectedFolder.id === 'root'}>Renomear pasta</button>
             <button type="button" onClick={handleDeleteFolder} disabled={selectedFolder.id === 'root'}>Excluir pasta</button>
             <button type="button" onClick={handleCreateEntry}>+ Nova credencial</button>
+            <button type="button" onClick={handleOpenButtercupImport}>Importar CSV Buttercup</button>
           </div>
 
           <div className="search-bar">
