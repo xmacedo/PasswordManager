@@ -36,25 +36,54 @@ const DEFAULT_VAULT_LOCATION = '/Users/felipemacedo/_dev/vault/password-manager.
 const DEFAULT_ENCRYPTED_MASTER_SECRET =
   '{"algorithm":"AES-GCM","kdf":"PBKDF2-SHA256","iterations":310000,"salt":"Gmh7ZxwB9XhS/eXs/eD/kQ==","iv":"8yDwDLUZAPaXbaWe","cipherText":"/smjUP0gCeO8CmeWbV4MhRoVQILYJiSw"}';
 
-function FolderTree({ vault, parentId, selectedFolderId, onSelect }) {
+function FolderTree({
+  vault,
+  parentId,
+  selectedFolderId,
+  expandedFolderIds,
+  onSelect,
+  onToggleFolder
+}) {
   const children = getChildFolders(vault, parentId);
 
   if (children.length === 0) return null;
 
   return (
     <ul className="tree-list">
-      {children.map((folder) => (
-        <li key={folder.id}>
-          <button
-            type="button"
-            className={`tree-item ${selectedFolderId === folder.id ? 'active' : ''}`}
-            onClick={() => onSelect(folder.id)}
-          >
-            📁 {folder.name}
-          </button>
-          <FolderTree vault={vault} parentId={folder.id} selectedFolderId={selectedFolderId} onSelect={onSelect} />
-        </li>
-      ))}
+      {children.map((folder) => {
+        const hasChildren = getChildFolders(vault, folder.id).length > 0;
+        const isExpanded = expandedFolderIds.has(folder.id);
+        const isActive = selectedFolderId === folder.id;
+
+        return (
+          <li key={folder.id}>
+            <div className={`tree-row ${isActive ? 'active' : ''}`}>
+              <button
+                type="button"
+                className="tree-toggle"
+                onClick={() => onToggleFolder(folder.id)}
+                disabled={!hasChildren}
+                aria-label={isExpanded ? 'Recolher pasta' : 'Expandir pasta'}
+              >
+                {hasChildren ? (isExpanded ? '▾' : '▸') : '•'}
+              </button>
+              <button type="button" className={`tree-item ${isActive ? 'active' : ''}`} onClick={() => onSelect(folder.id)}>
+                📁 {folder.name}
+              </button>
+            </div>
+            {hasChildren && isExpanded && (
+              <FolderTree
+                vault={vault}
+                parentId={folder.id}
+                selectedFolderId={selectedFolderId}
+                expandedFolderIds={expandedFolderIds}
+                onSelect={onSelect}
+                onToggleFolder={onToggleFolder}
+              />
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -139,7 +168,11 @@ export function App() {
   const [isLoadingVault, setIsLoadingVault] = useState(true);
   const [vaultLocation, setVaultLocation] = useState('');
   const [isLocationEditable, setIsLocationEditable] = useState(false);
+  const [expandedFolderIds, setExpandedFolderIds] = useState(() => new Set(['root']));
   const vaultLocationRef = useRef('');
+  const vaultRef = useRef(vault);
+  const masterPasswordRef = useRef(masterPassword);
+  const encryptedMasterSecretRef = useRef(encryptedMasterSecret);
   const buttercupImportInputRef = useRef(null);
 
   async function resolveVaultForLocation(location, fallbackMasterPassword) {
@@ -223,6 +256,18 @@ export function App() {
   }, [masterPassword]);
 
   useEffect(() => {
+    vaultRef.current = vault;
+  }, [vault]);
+
+  useEffect(() => {
+    masterPasswordRef.current = masterPassword;
+  }, [masterPassword]);
+
+  useEffect(() => {
+    encryptedMasterSecretRef.current = encryptedMasterSecret;
+  }, [encryptedMasterSecret]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       setSessionLock((current) => (isSessionLocked(current) ? lockSessionLock(current) : current));
     }, 1500);
@@ -248,6 +293,15 @@ export function App() {
       return searchable.includes(term);
     });
   }, [entries, searchScope, searchTerm, vault.entries]);
+
+  useEffect(() => {
+    const pathToSelected = getFolderPath(vault, selectedFolderId);
+    setExpandedFolderIds((current) => {
+      const next = new Set(current);
+      pathToSelected.forEach((folder) => next.add(folder.id));
+      return next;
+    });
+  }, [vault, selectedFolderId]);
 
   async function persistVault(
     nextVault,
@@ -276,6 +330,24 @@ export function App() {
     setAuditLog((current) => appendAuditEvent(current, { type: eventType, metadata }));
     setSessionLock((current) => touchSessionLock(current));
     await persistVault(nextVault, options.masterSecret || encryptedMasterSecret, options.plainMasterPassword || masterPassword);
+  }
+
+  function toggleFolderExpanded(folderId) {
+    setExpandedFolderIds((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }
+
+  async function persistCurrentVaultState() {
+    const location = (vaultLocationRef.current || vaultLocation).trim();
+    if (!location) return;
+    await persistVault(vaultRef.current, encryptedMasterSecretRef.current, masterPasswordRef.current, location);
   }
 
   async function handleCreateFolder() {
@@ -388,6 +460,7 @@ export function App() {
       window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, selectedName);
       await persistVault(createEmptyVault(), encryptedMasterSecret, masterPassword, selectedName);
       setVault(createEmptyVault());
+      setExpandedFolderIds(new Set(['root']));
       setCopyFeedback(`Arquivo "${selectedName}" criado com sucesso.`);
     } catch {
       setCopyFeedback('Não foi possível criar um novo arquivo de cofre.');
@@ -412,6 +485,7 @@ export function App() {
       const csvText = await file.text();
       const imported = importButtercupCsvToVault(csvText);
       setSelectedFolderId('root');
+      setExpandedFolderIds(new Set(['root']));
       await commit(imported.vault, 'vault.imported.buttercup', {
         fileName: file.name,
         importedEntries: imported.summary.entries,
@@ -449,10 +523,20 @@ export function App() {
     setAuditLog((current) => appendAuditEvent(current, { type: 'security.password_generated' }));
   }
 
-  function handleManualLock() {
+  async function handleManualLock() {
+    try {
+      await persistCurrentVaultState();
+    } catch {
+      setCopyFeedback('Falha ao salvar o estado atual antes de bloquear.');
+    }
     setSessionLock((current) => lockSessionLock(current));
     setAuditLog((current) => appendAuditEvent(current, { type: 'security.session_locked' }));
   }
+
+  useEffect(() => {
+    if (!isSessionLocked(sessionLock)) return;
+    void persistCurrentVaultState();
+  }, [sessionLock]);
 
   async function handleUnlock() {
     const normalizedLocation = (vaultLocationRef.current || vaultLocation).trim();
@@ -584,7 +668,14 @@ export function App() {
           <button type="button" onClick={() => setSelectedFolderId('root')} className="tree-root">
             🗂️ Vault
           </button>
-          <FolderTree vault={vault} parentId="root" selectedFolderId={selectedFolder.id} onSelect={setSelectedFolderId} />
+          <FolderTree
+            vault={vault}
+            parentId="root"
+            selectedFolderId={selectedFolder.id}
+            expandedFolderIds={expandedFolderIds}
+            onSelect={setSelectedFolderId}
+            onToggleFolder={toggleFolderExpanded}
+          />
           <button type="button" className="lock-btn" onClick={handleManualLock}>
             🔒 Bloquear agora
           </button>
