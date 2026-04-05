@@ -136,11 +136,11 @@ async function ensureFileHandle() {
   return null;
 }
 async function getHandleForLocation(location) {
-  const normalizedLocation = normalizeLocation(location);
+  const locationCandidates = getLocationCandidates(location);
   const handle = await ensureFileHandle();
   if (!handle) return null;
-  if (!normalizedLocation) return handle;
-  return handle.name === normalizedLocation ? handle : null;
+  if (locationCandidates.length === 0) return handle;
+  return locationCandidates.includes(handle.name) ? handle : null;
 }
 
 
@@ -203,6 +203,20 @@ function normalizeLocation(location) {
   return String(location || '').trim();
 }
 
+function getLocationBaseName(location) {
+  const normalized = normalizeLocation(location);
+  if (!normalized) return '';
+  const parts = normalized.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+function getLocationCandidates(location) {
+  const normalized = normalizeLocation(location);
+  const baseName = getLocationBaseName(normalized);
+  const candidates = [normalized, baseName].filter(Boolean);
+  return [...new Set(candidates)];
+}
+
 function getLocationStorageKey(location) {
   return `${LOCAL_STORAGE_PREFIX}${normalizeLocation(location)}`;
 }
@@ -212,7 +226,7 @@ export function createCsvVaultRepository() {
     async load(options = {}) {
       const location = normalizeLocation(options.location);
       if (location) {
-         const locationHandle = await getHandleForLocation(location);
+        const locationHandle = await getHandleForLocation(location);
         if (locationHandle) {
           const file = await locationHandle.getFile();
           const text = await file.text();
@@ -220,13 +234,18 @@ export function createCsvVaultRepository() {
             return { vault: createEmptyVault(), encryptedMasterSecret: null };
           }
           const parsed = parseCsv(text);
-          window.localStorage.setItem(getLocationStorageKey(location), toCsv(parsed));
+          const csv = toCsv(parsed);
+          for (const candidate of getLocationCandidates(location)) {
+            window.localStorage.setItem(getLocationStorageKey(candidate), csv);
+          }
           return parsed;
         }
-        const raw = window.localStorage.getItem(getLocationStorageKey(location));
-        if (!raw) {
-          return { vault: createEmptyVault(), encryptedMasterSecret: null };
+        let raw = null;
+        for (const candidate of getLocationCandidates(location)) {
+          raw = window.localStorage.getItem(getLocationStorageKey(candidate));
+          if (raw) break;
         }
+        if (!raw) return { vault: createEmptyVault(), encryptedMasterSecret: null };
         return parseCsv(raw);
       }
 
@@ -263,10 +282,15 @@ export function createCsvVaultRepository() {
           const csv = toCsv(data);
           await writable.write(csv);
           await writable.close();
-          window.localStorage.setItem(getLocationStorageKey(location), csv);
+          for (const candidate of getLocationCandidates(location)) {
+            window.localStorage.setItem(getLocationStorageKey(candidate), csv);
+          }
           return true;
         }
-        window.localStorage.setItem(getLocationStorageKey(location), toCsv(data));
+        const csv = toCsv(data);
+        for (const candidate of getLocationCandidates(location)) {
+          window.localStorage.setItem(getLocationStorageKey(candidate), csv);
+        }
         return true;
       }
 

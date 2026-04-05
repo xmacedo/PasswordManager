@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   appendAuditEvent,
@@ -138,6 +138,7 @@ export function App() {
   const [isLoadingVault, setIsLoadingVault] = useState(true);
   const [vaultLocation, setVaultLocation] = useState('');
   const [isLocationEditable, setIsLocationEditable] = useState(false);
+  const vaultLocationRef = useRef('');
 
   async function resolveVaultForLocation(location, fallbackMasterPassword) {
     const loaded = await repository.load({ location });
@@ -188,6 +189,7 @@ export function App() {
 
         window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, localVaultLocation);
         setVaultLocation(localVaultLocation);
+        vaultLocationRef.current = localVaultLocation;
         setMasterPassword(initialMasterPassword);
 
         const loadedState = await resolveVaultForLocation(localVaultLocation, initialMasterPassword);
@@ -348,6 +350,7 @@ export function App() {
 
   function handleVaultLocationChange(nextLocation) {
     setVaultLocation(nextLocation);
+    vaultLocationRef.current = nextLocation;
   }
 
   function handleSaveVaultLocation() {
@@ -419,7 +422,7 @@ export function App() {
   }
 
   async function handleUnlock() {
-    const normalizedLocation = vaultLocation.trim();
+    const normalizedLocation = (vaultLocationRef.current || vaultLocation).trim();
     if (!normalizedLocation) {
       setCopyFeedback('Informe a localização do arquivo antes de desbloquear.');
       return;
