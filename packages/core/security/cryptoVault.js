@@ -7,11 +7,28 @@ const SALT_BYTES = 16;
 const IV_BYTES = 12;
 
 function toBase64(bytes) {
-  return Buffer.from(bytes).toString('base64');
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary);
 }
 
 function fromBase64(base64Text) {
-  return Uint8Array.from(Buffer.from(base64Text, 'base64'));
+  if (typeof Buffer !== 'undefined') {
+    return Uint8Array.from(Buffer.from(base64Text, 'base64'));
+  }
+
+  const binary = atob(base64Text);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 async function deriveAesKey(masterPassword, saltBytes) {
