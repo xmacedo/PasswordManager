@@ -287,7 +287,7 @@ export function App() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       setSessionLock((current) => (isSessionLocked(current) ? lockSessionLock(current) : current));
-    }, 1500);
+    }, 15000);
 
     return () => window.clearInterval(timer);
   }, []);
