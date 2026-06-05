@@ -30,9 +30,8 @@ import { importButtercupCsvToVault } from './buttercupCsvImport';
 
 const repository = createCsvVaultRepository();
 const MASTER_SECRET_KEY = 'pm-default-master-key';
-const MASTER_PASSWORD_STORAGE_KEY = 'pm-master-password';
 const VAULT_LOCATION_STORAGE_KEY = 'pm-vault-location';
-const DEFAULT_VAULT_LOCATION = '/Users/felipemacedo/_dev/vault/password-manager.vault.csv';
+const TOUCH_ID_CREDENTIAL_STORAGE_KEY = 'pm-touch-id-credential';
 const DEFAULT_ENCRYPTED_MASTER_SECRET =
   '{"algorithm":"AES-GCM","kdf":"PBKDF2-SHA256","iterations":310000,"salt":"Gmh7ZxwB9XhS/eXs/eD/kQ==","iv":"8yDwDLUZAPaXbaWe","cipherText":"/smjUP0gCeO8CmeWbV4MhRoVQILYJiSw"}';
 
@@ -133,15 +132,48 @@ async function copyText(text) {
   }
 }
 
-async function unlockWithTouchId() {
+function arrayBufferToBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+}
+
+function base64UrlToArrayBuffer(value) {
+  const normalized = String(value || '');
+  const padded = normalized.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function getStoredTouchIdCredential() {
+  try {
+    const raw = window.localStorage.getItem(TOUCH_ID_CREDENTIAL_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredTouchIdCredential(credential) {
+  window.localStorage.setItem(TOUCH_ID_CREDENTIAL_STORAGE_KEY, JSON.stringify(credential));
+}
+
+async function createTouchIdCredential() {
   if (!window.PublicKeyCredential || !navigator.credentials?.create) {
-    return false;
+    return null;
   }
 
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const userId = crypto.getRandomValues(new Uint8Array(16));
 
-  await navigator.credentials.create({
+  const credential = await navigator.credentials.create({
     publicKey: {
       challenge,
       rp: { name: 'PasswordManager' },
@@ -161,7 +193,45 @@ async function unlockWithTouchId() {
     }
   });
 
-  return true;
+  if (!credential?.rawId) return null;
+
+  const storedCredential = {
+    id: credential.id,
+    rawId: arrayBufferToBase64Url(credential.rawId),
+    createdAt: new Date().toISOString()
+  };
+  setStoredTouchIdCredential(storedCredential);
+  return storedCredential;
+}
+
+async function authenticateWithTouchId() {
+  if (!window.PublicKeyCredential || !navigator.credentials?.get) {
+    return false;
+  }
+
+  const storedCredential = getStoredTouchIdCredential();
+  if (!storedCredential?.rawId) {
+    const createdCredential = await createTouchIdCredential();
+    return Boolean(createdCredential);
+  }
+
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge,
+      timeout: 60_000,
+      userVerification: 'required',
+      allowCredentials: [
+        {
+          id: base64UrlToArrayBuffer(storedCredential.rawId),
+          type: 'public-key',
+          transports: ['internal']
+        }
+      ]
+    }
+  });
+
+  return Boolean(assertion);
 }
 
 export function App() {
@@ -192,19 +262,22 @@ export function App() {
   const encryptedMasterSecretRef = useRef(encryptedMasterSecret);
   const buttercupImportInputRef = useRef(null);
 
-  async function resolveVaultForLocation(location, fallbackMasterPassword) {
+  async function resolveVaultForLocation(location, fallbackMasterPassword = '') {
     const loaded = await repository.load({ location });
     const persistedMasterSecret = loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET;
-    let resolvedMasterPassword = fallbackMasterPassword;
-
-    if (!resolvedMasterPassword) {
-      resolvedMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
-    }
+    let resolvedMasterPassword = String(fallbackMasterPassword || '');
 
     try {
-      resolvedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
-    } catch {
-      // keep existing fallback
+      const storedMasterPassword = await decryptSecret(persistedMasterSecret, MASTER_SECRET_KEY);
+      if (resolvedMasterPassword && storedMasterPassword !== resolvedMasterPassword) {
+        throw new Error('Senha mestra inválida.');
+      }
+      resolvedMasterPassword = storedMasterPassword;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Senha mestra inválida.') {
+        throw error;
+      }
+      if (!resolvedMasterPassword) throw new Error('Senha mestra não disponível para este cofre.');
     }
 
     const decryptedEntries = await Promise.all(
@@ -233,29 +306,18 @@ export function App() {
   useEffect(() => {
     async function initialize() {
       try {
-        const localMasterPassword = window.localStorage.getItem(MASTER_PASSWORD_STORAGE_KEY) || '';
         const persistedVaultLocation = window.localStorage.getItem(VAULT_LOCATION_STORAGE_KEY) || '';
-        const localVaultLocation = persistedVaultLocation.trim() || DEFAULT_VAULT_LOCATION;
-        const defaultMasterPassword = await decryptSecret(DEFAULT_ENCRYPTED_MASTER_SECRET, MASTER_SECRET_KEY);
-        const initialMasterPassword = localMasterPassword || defaultMasterPassword;
+        const localVaultLocation = persistedVaultLocation.trim();
 
-        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, localVaultLocation);
         setVaultLocation(localVaultLocation);
         vaultLocationRef.current = localVaultLocation;
-        setMasterPassword(initialMasterPassword);
 
-        const loadedState = await resolveVaultForLocation(localVaultLocation, initialMasterPassword);
-        if (!persistedVaultLocation.trim()) {
-          await repository.save(
-            {
-              vault: loadedState.vault,
-              encryptedMasterSecret: loadedState.persistedMasterSecret
-            },
-            { location: localVaultLocation }
-          );
+        if (!localVaultLocation) {
+          return;
         }
-        setEncryptedMasterSecret(loadedState.persistedMasterSecret);
-        setVault(loadedState.vault);
+
+        const loaded = await repository.load({ location: localVaultLocation });
+        setEncryptedMasterSecret(loaded.encryptedMasterSecret || DEFAULT_ENCRYPTED_MASTER_SECRET);
       } finally {
         setIsLoadingVault(false);
       }
@@ -263,14 +325,6 @@ export function App() {
 
     initialize();
   }, []);
-
-  useEffect(() => {
-    if (!masterPassword) {
-      window.localStorage.removeItem(MASTER_PASSWORD_STORAGE_KEY);
-      return;
-    }
-    window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, masterPassword);
-  }, [masterPassword]);
 
   useEffect(() => {
     vaultRef.current = vault;
@@ -373,6 +427,7 @@ export function App() {
   async function persistCurrentVaultState() {
     const location = (vaultLocationRef.current || vaultLocation).trim();
     if (!location) return;
+    if (!masterPasswordRef.current) return;
     await persistVault(vaultRef.current, encryptedMasterSecretRef.current, masterPasswordRef.current, location);
   }
 
@@ -521,7 +576,6 @@ export function App() {
       const nextMasterSecret = await encryptSecret(nextPassword, MASTER_SECRET_KEY);
       setMasterPassword(nextPassword);
       setEncryptedMasterSecret(nextMasterSecret);
-      window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, nextPassword);
       await commit(vault, 'security.master_password_updated', {}, {
         masterSecret: nextMasterSecret,
         plainMasterPassword: nextPassword
@@ -554,7 +608,7 @@ export function App() {
         setVault(loadedState.vault);
         setEncryptedMasterSecret(loadedState.persistedMasterSecret);
         setMasterPassword(loadedState.resolvedMasterPassword);
-        setCopyFeedback(`Arquivo "${resolvedLocation}" selecionado com sucesso.`);
+        setCopyFeedback(`Arquivo "${resolvedLocation}" carregado com sucesso.`);
       } catch {
         setCopyFeedback('Não foi possível selecionar um arquivo existente.');
       }
@@ -567,10 +621,11 @@ export function App() {
         const selectedName = await repository.createVaultFile();
         if (!selectedName) return;
         const resolvedLocation = resolveSelectedLocationPath(selectedName, vaultLocationRef.current || vaultLocation);
+        const emptyVault = createEmptyVault();
         handleVaultLocationChange(resolvedLocation);
         window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, resolvedLocation);
-        await persistVault(createEmptyVault(), encryptedMasterSecret, masterPassword, resolvedLocation);
-        setVault(createEmptyVault());
+        await persistVault(emptyVault, encryptedMasterSecret, masterPassword, resolvedLocation);
+        setVault(emptyVault);
         setExpandedFolderIds(new Set(['root']));
         setCopyFeedback(`Arquivo "${resolvedLocation}" criado com sucesso.`);
       } catch {
@@ -675,40 +730,64 @@ export function App() {
   async function handleUnlock() {
     const normalizedLocation = (vaultLocationRef.current || vaultLocation).trim();
     if (!normalizedLocation) {
-      setCopyFeedback('Informe a localização do arquivo antes de desbloquear.');
+      setCopyFeedback('Selecione ou crie um arquivo de cofre antes de desbloquear.');
       return;
     }
 
-    if (!masterPassword || !unlockInput || unlockInput !== masterPassword) {
+    if (!unlockInput) {
       setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed' }));
+      setCopyFeedback('Informe a senha mestra para desbloquear.');
       return;
     }
 
     await runWithLoading('Desbloqueando cofre...', async () => {
-      const loadedState = await resolveVaultForLocation(normalizedLocation, masterPassword);
-      setVault(loadedState.vault);
-      setEncryptedMasterSecret(loadedState.persistedMasterSecret);
-      setMasterPassword(loadedState.resolvedMasterPassword);
-      window.localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, loadedState.resolvedMasterPassword);
-      window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, normalizedLocation);
-      setSessionLock((current) => unlockSessionLock(current, 'master-password'));
-      setUnlockInput('');
-      setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success' }));
+      try {
+        const loadedState = await resolveVaultForLocation(normalizedLocation, unlockInput);
+        setVault(loadedState.vault);
+        setEncryptedMasterSecret(loadedState.persistedMasterSecret);
+        setMasterPassword(loadedState.resolvedMasterPassword);
+        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, normalizedLocation);
+        setSessionLock((current) => unlockSessionLock(current, 'master-password'));
+        setUnlockInput('');
+        setCopyFeedback('');
+        setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success' }));
+      } catch {
+        setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed' }));
+        setCopyFeedback('Senha mestra inválida ou arquivo de cofre incompatível.');
+      }
     });
   }
 
   async function handleUnlockWithTouchId() {
     await runWithLoading('Validando Touch ID...', async () => {
       try {
-        const unlocked = await unlockWithTouchId();
+        const normalizedLocation = (vaultLocationRef.current || vaultLocation).trim();
+        if (!normalizedLocation) {
+          setCopyFeedback('Selecione ou crie um arquivo de cofre antes de usar Touch ID.');
+          return;
+        }
+
+        const hadStoredTouchIdCredential = Boolean(getStoredTouchIdCredential()?.rawId);
+        if (!hadStoredTouchIdCredential && !masterPassword) {
+          setCopyFeedback('Desbloqueie com a senha mestra uma vez antes de habilitar o Touch ID.');
+          return;
+        }
+
+        const unlocked = await authenticateWithTouchId();
         if (!unlocked) {
           setCopyFeedback('Touch ID não disponível neste navegador/dispositivo.');
           return;
         }
 
+        const loadedState = await resolveVaultForLocation(normalizedLocation, masterPassword);
+        setVault(loadedState.vault);
+        setEncryptedMasterSecret(loadedState.persistedMasterSecret);
+        setMasterPassword(loadedState.resolvedMasterPassword);
+        window.localStorage.setItem(VAULT_LOCATION_STORAGE_KEY, normalizedLocation);
         setSessionLock((current) => unlockSessionLock(current, 'touch-id'));
         setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_success', metadata: { method: 'touch-id' } }));
         setUnlockInput('');
+        setCopyFeedback(hadStoredTouchIdCredential ? 'Touch ID validado com sucesso.' : 'Touch ID configurado e validado com sucesso.');
       } catch {
         setAuditLog((current) => appendAuditEvent(current, { type: 'security.unlock_failed', metadata: { method: 'touch-id' } }));
         setCopyFeedback('Falha ao autenticar com Touch ID.');
@@ -725,7 +804,7 @@ export function App() {
       <main className="container">
         <section className="card lock-screen">
           <h1>PasswordManager</h1>
-          <p>Carregando cofre padrão...</p>
+          <p>Verificando arquivo de cofre selecionado...</p>
         </section>
       </main>
     );
@@ -746,7 +825,11 @@ export function App() {
               placeholder="Ex: password-manager.vault.csv"
             />
           </label>
-          {vaultLocation && <p className="helper">Caminho completo: {vaultLocation}</p>}
+          {vaultLocation ? (
+            <p className="helper">Arquivo selecionado: {vaultLocation}</p>
+          ) : (
+            <p className="helper">Nenhum arquivo selecionado. Selecione um CSV existente ou crie um novo cofre.</p>
+          )}
           <label className="toggle-inline">
             <input
               type="checkbox"
